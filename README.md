@@ -1,4 +1,4 @@
-# Boondockers Helper
+# Boondockers' Helper
 
 Log and visualise battery data from a Victron BMV-712 Smart battery monitor via Bluetooth.
 Replaces the manual screenshot-to-spreadsheet workflow with a live dashboard, interactive

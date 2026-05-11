@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Setup wizard for Boondockers Helper.
+Setup wizard for Boondockers' Helper.
 
 Usage (normally invoked via setup/setup.sh):
     python3 setup/wizard.py [--skip-launchd | --skip-config]
@@ -185,7 +185,7 @@ def step_welcome() -> None:
     width = 50
     print()
     print(_c(BOLD, "=" * width))
-    print(_c(BOLD, "  Boondockers Helper — Setup Wizard"))
+    print(_c(BOLD, "  Boondockers' Helper — Setup Wizard"))
     print(_c(BOLD, "=" * width))
     print()
     print("This wizard will:")
@@ -649,7 +649,7 @@ def step_complete(*, config_written: bool, verified: bool, launchd_ok: bool) -> 
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Boondockers Helper setup wizard"
+        description="Boondockers' Helper setup wizard"
     )
     parser.add_argument(
         "--skip-launchd",

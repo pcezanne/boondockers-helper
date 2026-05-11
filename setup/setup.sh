@@ -1,5 +1,5 @@
 #!/bin/bash
-# Setup wizard bootstrap for Boondockers Helper.
+# Setup wizard bootstrap for Boondockers' Helper.
 # Usage: bash setup/setup.sh [--skip-launchd | --skip-config]
 set -euo pipefail
 

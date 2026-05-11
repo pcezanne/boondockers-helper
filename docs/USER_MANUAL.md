@@ -1,4 +1,4 @@
-# User Manual — Boondockers Helper
+# User Manual — Boondockers' Helper
 
 This manual explains how to read and use the dashboard and HTML reports once the tool
 is installed and collecting data. For setup instructions see [README.md](../README.md).
