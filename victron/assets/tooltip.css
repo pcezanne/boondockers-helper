@@ -1,0 +1,74 @@
+/* Instant CSS tooltips via data-tip attribute.
+   Applied to table headers and warning cells in the Dash dashboard. */
+
+/* Table header tooltips (opens downward) */
+thead th[data-tip] {
+  position: relative;
+  cursor: help;
+}
+thead th[data-tip]::after {
+  content: attr(data-tip);
+  position: absolute;
+  top: 110%; left: 50%;
+  transform: translateX(-50%);
+  background: #222; color: #fff;
+  padding: 6px 10px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: normal;
+  white-space: normal;
+  width: 300px;
+  line-height: 1.4;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+  pointer-events: none;
+  z-index: 1000;
+  opacity: 0; transition: opacity 0.1s;
+  text-transform: none;
+  letter-spacing: normal;
+}
+thead th[data-tip]::before {
+  content: '';
+  position: absolute;
+  top: calc(110% - 6px); left: 50%;
+  transform: translateX(-50%);
+  border: 6px solid transparent;
+  border-bottom-color: #222;
+  pointer-events: none; z-index: 1000;
+  opacity: 0; transition: opacity 0.1s;
+}
+thead th[data-tip]:hover::after,
+thead th[data-tip]:hover::before { opacity: 1; }
+
+/* Inline warning cell tooltips (opens upward from span) */
+span[data-tip] {
+  position: relative;
+  cursor: help;
+}
+span[data-tip]::after {
+  content: attr(data-tip);
+  position: absolute;
+  bottom: 130%; left: 0;
+  background: #222; color: #fff;
+  padding: 6px 10px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: normal;
+  white-space: normal;
+  width: 260px;
+  line-height: 1.4;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+  pointer-events: none;
+  z-index: 1000;
+  opacity: 0; transition: opacity 0.1s;
+}
+span[data-tip]::before {
+  content: '';
+  position: absolute;
+  bottom: calc(130% - 6px); left: 6px;
+  border: 6px solid transparent;
+  border-top-color: #222;
+  pointer-events: none; z-index: 1000;
+  opacity: 0; transition: opacity 0.1s;
+}
+span[data-tip]:hover::after,
+span[data-tip]:hover::before { opacity: 1; }

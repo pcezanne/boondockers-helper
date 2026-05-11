@@ -1,0 +1,33 @@
+# victron-logger.service — systemd unit for Raspberry Pi
+#
+# TODO: Decide on Pi connection method before finalising:
+#   Option A — BLE (same as macOS):
+#     Requires `pip install victron-ble` on the Pi. Works with Pi 3B+/4/5
+#     built-in Bluetooth. BLE UUID will be different from the Mac UUID
+#     (macOS UUIDs are machine-specific; Pi will show the device's MAC address).
+#
+#   Option B — VE.Direct USB cable:
+#     More reliable than BLE. Requires the Victron VE.Direct-to-USB cable
+#     (~$20) and a different library (e.g. `vedirect` on PyPI or the Victron
+#     vedirect Python library). logger.py would need a VE.Direct read path.
+#
+# Once decided, uncomment and edit the block below, then:
+#   sudo cp setup/victron-logger.service /etc/systemd/system/
+#   sudo systemctl enable victron-logger
+#   sudo systemctl start victron-logger
+#   journalctl -u victron-logger -f   # view logs
+
+# [Unit]
+# Description=Victron BMV-712 battery logger
+# After=network.target bluetooth.target
+#
+# [Service]
+# Type=simple
+# User=__YOUR_PI_USERNAME__
+# WorkingDirectory=__ABSOLUTE_PATH_TO_PROJECT__
+# ExecStart=/usr/bin/python3 logger.py
+# Restart=always
+# RestartSec=60
+#
+# [Install]
+# WantedBy=multi-user.target

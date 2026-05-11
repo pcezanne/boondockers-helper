@@ -1,0 +1,64 @@
+[device]
+; UUID from `victron-ble discover` (macOS) or MAC address (Raspberry Pi)
+uuid = 00000000-0000-0000-0000-000000000000
+; Encryption key from VictronConnect app → ... menu → Product Info → Instant Readout Details
+key  = 00000000000000000000000000000000
+
+[logging]
+poll_interval_minutes = 15
+db_path = victron_data.db
+
+[charging]
+; Current above this threshold (amps) = charging — excluded from daily usage stats.
+; Generator / shore power: 2.0 works well.
+; Solar panels: lower to 0.5 so solar trickle counts as charging too.
+threshold_amps = 2.0
+
+; Sessions with data gaps larger than this (hours) are split into separate sessions.
+; Increase if your laptop is regularly off for long stretches.
+max_gap_hours = 4.0
+
+[report]
+output_dir = reports
+; Time display format in tables and chart axis: 12h (e.g. 2:30 PM) or 24h (e.g. 14:30)
+time_format = 12h
+; Date display format in session tables. Uses Python strftime codes.
+; %-d = day without leading zero, %B = full month name, %Y = 4-digit year
+date_format = %B %-d, %Y
+; How fast the generator/shore power charges the battery (%/hour).
+; Measured automatically from charging sessions once data is available.
+charge_rate_pct_per_hour = 6.0
+; Target SOC to stop running the generator.
+; Set below 100% to avoid running the generator through the slow CV tail.
+target_soc_pct = 95
+; Total usable battery bank capacity in amp-hours.
+; Used to calculate remaining Ah and implied average power draw.
+; Leave commented out if unknown — those features will be suppressed.
+battery_capacity_ah = 920
+; Adaptive downsampling for the SOC chart (reduces HTML file size for long windows).
+; Tier 1: keep all 1-minute readings younger than this many hours.
+downsample_tier1_hours = 6
+; Tier 2/3 boundary: readings older than this switch to coarser sampling.
+downsample_tier2_hours = 24
+; Target resolution for data 6–24 hours old (one point per N minutes via LTTB).
+downsample_tier2_mins = 5
+; Target resolution for data older than 24 hours (one point per N minutes via LTTB).
+downsample_tier3_mins = 15
+; Sessions with less than this % SOC change are discarded (filters DC-DC blips, slide motor runs, etc.)
+min_session_pct = 1.0
+
+[diagnostics]
+; Minimum number of CC→CV sessions needed before knee-SOC baseline is valid.
+knee_soc_baseline_sessions = 5
+; Flag a session if knee SOC drops this many percentage points below the rolling median.
+knee_soc_drop_threshold_pct = 10
+; Flag charge rate decline when the last-3-session average falls this % below the all-time average.
+charge_rate_decline_threshold_pct = 20
+; Flag thermal derating when current drops this % from the session peak within the detection window.
+thermal_derating_drop_pct = 15
+; Detection window in minutes for the initial current peak (early session only).
+thermal_derating_window_minutes = 30
+; Flag a parasitic drain when SOC drops this % during an idle period (no session active).
+parasitic_drain_threshold_pct = 2
+; Idle periods shorter than this many hours are ignored.
+parasitic_drain_min_hours = 4

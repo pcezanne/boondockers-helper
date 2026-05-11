@@ -1,0 +1,6 @@
+plotly>=5.0.0
+dash>=2.0.0
+pywebview>=4.0.0
+victron-ble>=1.0.0
+pytest>=8.0.0
+pytest-cov>=5.0.0

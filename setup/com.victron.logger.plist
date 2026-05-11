@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  macOS launchd user agent for victron battery logger.
+
+  Setup (one-time):
+    1. Edit WorkingDirectory below to the absolute path of your project folder.
+    2. Edit ProgramArguments python3 path if needed (run `which python3` to check).
+    3. Copy to LaunchAgents and load:
+
+       cp setup/com.victron.logger.plist ~/Library/LaunchAgents/
+       launchctl load ~/Library/LaunchAgents/com.victron.logger.plist
+
+  To stop:
+       launchctl unload ~/Library/LaunchAgents/com.victron.logger.plist
+
+  Logs:
+       tail -f ~/Library/Logs/victron-logger.log
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.victron.logger</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Library/Frameworks/Python.framework/Versions/3.13/bin/python3</string>
+        <string>victron/logger.py</string>
+    </array>
+
+    <!-- Edit this to the absolute path of your project directory -->
+    <key>WorkingDirectory</key>
+    <string>__PROJECT_PATH__</string>
+
+    <key>RunAtLoad</key>
+    <true/>
+
+    <key>KeepAlive</key>
+    <true/>
+
+    <key>StandardOutPath</key>
+    <string>__LOG_PATH__</string>
+
+    <key>StandardErrorPath</key>
+    <string>__LOG_PATH__</string>
+
+    <!-- Throttle restarts — waits 60s before restarting on failure -->
+    <key>ThrottleInterval</key>
+    <integer>60</integer>
+</dict>
+</plist>
