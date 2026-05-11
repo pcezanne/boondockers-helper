@@ -1755,8 +1755,21 @@ def filter_sessions(discharge_sessions, charging_sessions, min_pct=1.0):
         else:
             return (session[-1]['soc'] or 0) - (session[0]['soc'] or 0)
 
-    filtered_dis = [s for s in discharge_sessions if soc_change(s, True)  >= min_pct]
-    filtered_chg = [s for s in charging_sessions  if soc_change(s, False) >= min_pct]
+    def _keep_charge(session):
+        gain = soc_change(session, False)
+        if gain >= min_pct:
+            return True
+        # Keep sessions that reached near-full (≥99% SOC) with any measurable gain.
+        # Top-offs from ≥99% SOC have <1% gain by definition, but "reached essentially
+        # full" is a meaningful event. Require gain > 0 to exclude flat float-mode noise.
+        # BLE dropout can cut a session short before 100% is logged, so 99.0% not 99.5%.
+        if gain <= 0:
+            return False
+        soc_end = (session[-1]['soc'] or 0) if session else 0
+        return soc_end >= 99.0
+
+    filtered_dis = [s for s in discharge_sessions if soc_change(s, True) >= min_pct]
+    filtered_chg = [s for s in charging_sessions if _keep_charge(s)]
     return filtered_dis, filtered_chg
 
 
