@@ -1147,7 +1147,7 @@ def build_figure(readings, discharge_sessions, charging_sessions,
             '%{customdata[0]:.1f} A avg<br>'
             'Full session: %{customdata[1]:.1f}%/hr<br>'
             'Knee SOC: %{customdata[2]:.1f}%<br>'
-            '<i style="color:#aaa;font-size:11px">CC = Constant Current phase: fast charging<br>'
+            '<i style="color:white;font-size:11px">CC = Constant Current phase: fast charging<br>'
             'before the charger tapers to CV (top-off). CC rate<br>'
             'is the meaningful speed; CV tail skews session avg.</i>'
             '<extra></extra>'
@@ -1170,11 +1170,12 @@ def build_figure(readings, discharge_sessions, charging_sessions,
             showlegend=(idx == 0), legend='legend2',
         ), row=charge_row, col=1)
 
-        if summary.get('measured_charge_rate') and type_label not in ('Unclassified',):
+        if type_label not in ('Unclassified',):
+            type_avg = sum(cc_rates) / len(cc_rates)
             fig.add_hline(
-                y=summary['effective_charge_rate'],
+                y=type_avg,
                 line_dash='dash', line_color='gray',
-                annotation_text=f"All-time avg {summary['effective_charge_rate']:.1f}%/h",
+                annotation_text=f"All-time avg {type_avg:.1f}%/h",
                 annotation_position='top left',
                 row=charge_row, col=1,
             )
