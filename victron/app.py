@@ -836,7 +836,7 @@ def build_app(cfg):
                 html.H2('Discharge Sessions',
                         style={'color': '#1a5276', 'marginTop': '40px', 'display': 'inline-block', 'marginRight': '16px'}),
                 dcc.Checklist(
-                    id='show-all-sessions',
+                    id='show-all-discharge',
                     options=[{'label': ' Show all', 'value': 'show_all'}],
                     value=[],
                     style={'display': 'inline-block', 'verticalAlign': 'middle', 'fontSize': '0.9em'},
@@ -845,8 +845,16 @@ def build_app(cfg):
             html.Div(id='discharge-table',
                      children=_discharge_table(data['discharge_stats'], notes, system_diags)),
 
-            html.H2('Charging Sessions',
-                    style={'color': '#1a5276', 'marginTop': '40px'}),
+            html.Div([
+                html.H2('Charging Sessions',
+                        style={'color': '#1a5276', 'marginTop': '40px', 'display': 'inline-block', 'marginRight': '16px'}),
+                dcc.Checklist(
+                    id='show-all-charging',
+                    options=[{'label': ' Show all', 'value': 'show_all'}],
+                    value=[],
+                    style={'display': 'inline-block', 'verticalAlign': 'middle', 'fontSize': '0.9em'},
+                ),
+            ]),
             html.Div(id='charging-table',
                      children=_charging_table(data['charging_stats'], notes)),
 
@@ -872,11 +880,13 @@ def build_app(cfg):
         Output('charging-table', 'children'),
         Output('diagnostics-panel', 'children'),
         Input('refresh-btn', 'n_clicks'),
-        Input('show-all-sessions', 'value'),
+        Input('show-all-discharge', 'value'),
+        Input('show-all-charging', 'value'),
         prevent_initial_call=True,
     )
-    def refresh_data(_n, show_all_val):
-        show_all = 'show_all' in (show_all_val or [])
+    def refresh_data(_n, show_all_discharge_val, show_all_charging_val):
+        show_all_discharge = 'show_all' in (show_all_discharge_val or [])
+        show_all_charging = 'show_all' in (show_all_charging_val or [])
         fresh = load_all_data(cfg)
         if fresh is None:
             empty = html.P('No data.', style={'color': '#999'})
@@ -896,8 +906,8 @@ def build_app(cfg):
         return (
             fig,
             _summary_cards(fresh['summary']),
-            _discharge_table(fresh['discharge_stats'], notes, system_diags, show_all=show_all),
-            _charging_table(fresh['charging_stats'], notes, show_all=show_all),
+            _discharge_table(fresh['discharge_stats'], notes, system_diags, show_all=show_all_discharge),
+            _charging_table(fresh['charging_stats'], notes, show_all=show_all_charging),
             _diagnostics_panel(diagnostics),
         )
 
