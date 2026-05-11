@@ -484,11 +484,13 @@ def _diagnostics_panel(diagnostics):
     return html.Div([_header, html.Div(cards)], style=_panel_style)
 
 
-def _discharge_table(discharge_stats, notes, system_diags=None):
+def _discharge_table(discharge_stats, notes, system_diags=None, show_all=False):
     if not discharge_stats:
         return html.P('No discharge sessions recorded yet.', style={'color': '#999'})
 
     system_diags = system_diags or []
+    if not show_all:
+        discharge_stats = discharge_stats[-10:]
     # Build set of drain period_end timestamps (ISO prefix) for proximity check
     drain_ends = []
     for d in system_diags:
@@ -562,9 +564,11 @@ def _discharge_table(discharge_stats, notes, system_diags=None):
                       style={'borderCollapse': 'collapse', 'width': '100%', 'fontSize': '0.88em'})
 
 
-def _charging_table(charging_stats, notes):
+def _charging_table(charging_stats, notes, show_all=False):
     if not charging_stats:
         return html.P('No charging sessions recorded yet.', style={'color': '#999'})
+    if not show_all:
+        charging_stats = charging_stats[-10:]
 
     _charge_type_options = [
         {'label': 'Shore',     'value': 'Shore'},
@@ -828,8 +832,16 @@ def build_app(cfg):
             html.Div(id='diagnostics-panel',
                      children=_diagnostics_panel(initial_diags)),
 
-            html.H2('Discharge Sessions',
-                    style={'color': '#1a5276', 'marginTop': '40px'}),
+            html.Div([
+                html.H2('Discharge Sessions',
+                        style={'color': '#1a5276', 'marginTop': '40px', 'display': 'inline-block', 'marginRight': '16px'}),
+                dcc.Checklist(
+                    id='show-all-sessions',
+                    options=[{'label': ' Show all', 'value': 'show_all'}],
+                    value=[],
+                    style={'display': 'inline-block', 'verticalAlign': 'middle', 'fontSize': '0.9em'},
+                ),
+            ]),
             html.Div(id='discharge-table',
                      children=_discharge_table(data['discharge_stats'], notes, system_diags)),
 
@@ -860,9 +872,11 @@ def build_app(cfg):
         Output('charging-table', 'children'),
         Output('diagnostics-panel', 'children'),
         Input('refresh-btn', 'n_clicks'),
+        Input('show-all-sessions', 'value'),
         prevent_initial_call=True,
     )
-    def refresh_data(_n):
+    def refresh_data(_n, show_all_val):
+        show_all = 'show_all' in (show_all_val or [])
         fresh = load_all_data(cfg)
         if fresh is None:
             empty = html.P('No data.', style={'color': '#999'})
@@ -882,8 +896,8 @@ def build_app(cfg):
         return (
             fig,
             _summary_cards(fresh['summary']),
-            _discharge_table(fresh['discharge_stats'], notes, system_diags),
-            _charging_table(fresh['charging_stats'], notes),
+            _discharge_table(fresh['discharge_stats'], notes, system_diags, show_all=show_all),
+            _charging_table(fresh['charging_stats'], notes, show_all=show_all),
             _diagnostics_panel(diagnostics),
         )
 
