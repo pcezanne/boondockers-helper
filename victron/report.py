@@ -1003,8 +1003,8 @@ def build_figure(readings, discharge_sessions, charging_sessions,
 
     if charge_plan:
         charge_titles = tuple(
-            f'CC Phase Rate — {lbl} (%/hour)' if lbl != 'All Sessions'
-            else 'CC Phase Rate per Session (%/hour)'
+            f'Constant Current Phase Rate — {lbl} (%/hour)' if lbl != 'All Sessions'
+            else 'Constant Current Phase Rate per Session (%/hour)'
             for lbl, _ in charge_plan
         )
     else:
