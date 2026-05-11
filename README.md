@@ -1,31 +1,43 @@
 # Boondockers' Helper
 
-Log and visualise battery data from a Victron BMV-712 Smart battery monitor via Bluetooth.
-Replaces the manual screenshot-to-spreadsheet workflow with a live dashboard, interactive
-HTML reports, and per-session charge-type tracking.
+You're two days into a boondock, 150 miles from the nearest hookup. Your battery is at
+62%. Is that fine, or do you need to run the generator tonight?
 
-**Platforms:** macOS · Linux (Raspberry Pi)  
-**Requirements:** Python 3.10+
+The Victron app tells you what's happening right now. It doesn't tell you whether today's
+drain is normal, how long the generator needs to run, or whether your battery is slowly
+getting weaker. You end up guessing — or taking notes on your phone.
+
+Boondockers' Helper fixes that. It logs your battery data continuously in the background,
+then gives you a dashboard with the answers that actually matter:
+
+- **How many hours of power do I have left** at today's rate? At my 7-day average?
+- **How long do I need to run the generator** to get back to 95%?
+- **Am I using more power than usual?** Has something changed?
+- **Is my battery getting weaker?** Charge rate trending down? Thermal derating kicking in?
+- **Did something drain the battery overnight** while everything was supposed to be off?
+
+Give it a week of data and it knows your patterns. It knows what a normal day looks like,
+what your generator does in two hours, and when something is off.
 
 ---
 
-## Known Limitations (read before you start)
+## Known Limitations
 
 - **Solar charging is not modelled.** The tool logs the effect of solar on battery SOC
-  (rising SOC, positive current), but there is no solar-specific analysis. If your
-  primary charging is solar, the charge rate numbers will be misleading. Solar support
-  is planned but not yet built.
+  but there is no solar-specific analysis. If solar is your primary charging source, the
+  charge rate numbers will be misleading. Solar support is planned.
 - **Alpha software.** Expect rough edges; feedback welcome.
-- **macOS only for now:** Linux (Raspberry Pi) support exists but is less tested.
+- **macOS only for now.** Linux (Raspberry Pi) support exists but is less tested.
   Windows is untested.
 
 ---
 
-## Hardware Required
+## What You Need
 
-- **Victron BMV-712 Smart** battery monitor (the Bluetooth model; the 700 without
-  Smart/Bluetooth will not work)
-- A computer with Bluetooth LE within range of the BMV-712
+- **Victron BMV-712 Smart** battery monitor (the Bluetooth model — the 700 series without
+  "Smart" in the name will not work)
+- A Mac with Bluetooth, running macOS and Python 3.10+
+- The **VictronConnect** app on your phone to retrieve the encryption key (one-time setup)
 
 ---
 
@@ -37,10 +49,10 @@ cd boondockers-helper/src
 bash setup/setup.sh
 ```
 
-The setup wizard will guide you through BLE device discovery, encryption key entry,
-`config.ini` creation, a live connection test, and optional background agent installation.
+The setup wizard walks you through finding your device UUID, entering your encryption key,
+and optionally installing a background agent that logs automatically whenever your Mac is on.
 
-> `config.ini` is gitignored and will never be committed. Your encryption key stays on your machine.
+> Your encryption key stays on your machine — it is never committed to git.
 
 ---
 
@@ -52,8 +64,8 @@ The setup wizard will guide you through BLE device discovery, encryption key ent
 python3 victron/logger.py
 ```
 
-Polls every `poll_interval_minutes`. Leave this running or set it up as a launchd agent
-(see `setup/com.victron.logger.plist`).
+Polls every `poll_interval_minutes` (default 15). The setup wizard can install this as a
+macOS launchd agent so it runs automatically in the background.
 
 ### Live dashboard
 
@@ -63,40 +75,36 @@ Polls every `poll_interval_minutes`. Leave this running or set it up as a launch
 
 Opens a browser tab at `http://localhost:8050`. The dashboard shows:
 
-- **Summary cards** — current SOC, usage rate, time remaining at current rate,
-  time remaining at 7-day average, charging estimates
-- **State of Charge chart** — SOC over time with voltage (V) and current (A) overlaid
-- **Daily Battery Usage** — bar chart of % SOC consumed per calendar day
-- **Charge Rate** — bar chart of charging speed per session, grouped by type
-  (Shore / Generator / Driving / Unclassified)
+- **Summary cards** — current SOC, usage rate, hours remaining, generator time needed
+- **State of Charge chart** — SOC over time with voltage and current overlaid
+- **Daily Battery Usage** — % SOC consumed per calendar day, with 7-day average
+- **Charge Rate** — charging speed per session, grouped by source (Shore / Generator / Driving)
+- **Diagnostics** — alerts for declining charge rate, thermal derating, parasitic drain, and battery knee drift
 
-Hit **Refresh** to reload all data from the database.  
-Hit **Download Report** to save a standalone HTML file.
+Hit **Refresh** to reload. Hit **Download Report** to save a standalone HTML file.
 
-### HTML report (standalone)
+### HTML report
 
 ```bash
 python3 -m victron.report               # last 30 days, opens in browser
 python3 -m victron.report --days 14     # last 14 days
-python3 -m victron.report --no-open     # generate file without opening
+python3 -m victron.report --no-open     # generate without opening
 ```
-
-Reports are saved to `reports/report_YYYYMMDD_HHMMSS.html`.
 
 ---
 
 ## Dashboard Tips
 
-- **Session notes**: click the Notes cell in the Discharge or Charging Sessions table to
-  add a comment. Notes appear as hover tooltips on the SOC chart.
-- **Charge types**: use the Type dropdown in the Charging Sessions table to label each
-  session as Shore, Generator, or Driving. Sessions labelled Shore or Driving are
-  **excluded from the summary cards** — they skew the averages when you are plugged in.
-- Notes and charge types save automatically to the local database.
+- **Session notes**: click the Notes cell in either session table to add a comment.
+  Notes appear as hover tooltips on the SOC chart.
+- **Charge types**: label each charging session as Shore, Generator, or Driving.
+  Shore and Driving sessions are excluded from the summary cards so plugged-in days
+  don't skew your off-grid averages.
+- Notes and labels save automatically to the local database.
 
 ---
 
-## macOS Background Agent (launchd)
+## macOS Background Agent
 
 The setup wizard installs this automatically. To manage it manually:
 
@@ -116,12 +124,10 @@ bash setup/setup.sh --skip-config
 
 ## Tips for Good Data
 
-- The more data you collect, the more accurate the averages become. Give it a week of
-  normal usage before trusting the 7-day summary cards.
-- The logger handles gaps gracefully — sessions are split when the gap exceeds
-  `max_gap_hours`. You can stop and restart the logger freely.
-- Label your charging sessions (Shore / Generator / Driving) as they come in. The
-  summary cards only use Generator sessions by default once you start labelling.
+- Give it at least a week before trusting the 7-day averages.
+- The logger handles gaps gracefully — you can close your laptop freely.
+- Label your charging sessions as they come in. The summary cards use only Generator
+  sessions once you start labelling, keeping your off-grid averages clean.
 
 ---
 
@@ -134,7 +140,7 @@ src/
 │   ├── report.py        — HTML report generator
 │   └── app.py           — Plotly Dash live dashboard
 ├── tests/               — unit tests (pytest)
-├── setup/               — launchd (macOS) and systemd (Linux) service files
+├── setup/               — setup wizard and background agent files
 ├── config.ini           — your credentials and settings (gitignored)
 ├── config.ini.example   — safe template — copy this to config.ini
 ├── victron_data.db      — SQLite database (gitignored, created on first run)
