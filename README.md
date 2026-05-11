@@ -32,7 +32,7 @@ HTML reports, and per-session charge-type tracking.
 ## Installation
 
 ```bash
-git clone <repo-url>
+git clone https://github.com/pcezanne/boondockers-helper.git
 cd boondockers-helper/src
 bash setup/setup.sh
 ```
