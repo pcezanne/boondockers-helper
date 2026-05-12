@@ -1059,12 +1059,6 @@ def build_figure(readings, discharge_sessions, charging_sessions,
         showlegend=True, legend='legend',
     ), row=1, col=1)
     fig.add_trace(go.Scatter(
-        x=[None], y=[None], mode='markers', name='No data (session active)',
-        marker=dict(symbol='square', size=12, color='rgba(255, 165, 0, 0.25)',
-                    line=dict(color='rgba(255, 165, 0, 0.6)', width=1)),
-        showlegend=True, legend='legend',
-    ), row=1, col=1)
-    fig.add_trace(go.Scatter(
         x=[None], y=[None], mode='markers', name='No data (logger off)',
         marker=dict(symbol='square', size=12, color='white',
                     line=dict(color='#aaa', width=1)),
@@ -1237,24 +1231,29 @@ def build_figure(readings, discharge_sessions, charging_sessions,
             )
 
     # Shade discharge sessions amber, charging sessions green — SOC chart only.
+    # Split vrects at data gaps (>10 min) so gaps within a session show white,
+    # consistent with the grey logged-span logic above.
+    def _session_vrects(session, fillcolor):
+        if len(session) < 2:
+            return
+        span_start = to_local(parse_ts(session[0]['timestamp']))
+        prev_ts = span_start
+        for r in session[1:]:
+            cur_ts = to_local(parse_ts(r['timestamp']))
+            if cur_ts - prev_ts > _GAP_THRESHOLD:
+                fig.add_vrect(x0=span_start, x1=prev_ts,
+                              fillcolor=fillcolor, layer='below', line_width=0,
+                              row=1, col=1)
+                span_start = cur_ts
+            prev_ts = cur_ts
+        fig.add_vrect(x0=span_start, x1=prev_ts,
+                      fillcolor=fillcolor, layer='below', line_width=0,
+                      row=1, col=1)
+
     for session in discharge_sessions:
-        if len(session) >= 2:
-            x0 = to_local(parse_ts(session[0]['timestamp']))
-            x1 = to_local(parse_ts(session[-1]['timestamp']))
-            fig.add_vrect(
-                x0=x0, x1=x1,
-                fillcolor='rgba(255, 165, 0, 0.25)', layer='below', line_width=0,
-                row=1, col=1,
-            )
+        _session_vrects(session, 'rgba(255, 165, 0, 0.25)')
     for session in charging_sessions:
-        if len(session) >= 2:
-            x0 = to_local(parse_ts(session[0]['timestamp']))
-            x1 = to_local(parse_ts(session[-1]['timestamp']))
-            fig.add_vrect(
-                x0=x0, x1=x1,
-                fillcolor='rgba(46, 139, 87, 0.25)', layer='below', line_width=0,
-                row=1, col=1,
-            )
+        _session_vrects(session, 'rgba(46, 139, 87, 0.25)')
 
     # Session note hovers on SOC chart.
     #
