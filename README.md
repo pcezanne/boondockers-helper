@@ -21,6 +21,77 @@ what your generator does in two hours, and when something is off.
 
 ---
 
+## Screenshots
+
+**Summary cards** — the answers you actually need, at a glance:
+
+![Summary cards](docs/images/summary_cards.png)
+
+**State of Charge chart** — SOC, voltage, and current over time, with discharge and
+charging sessions shaded. Notes you've added appear as hover tooltips:
+
+![SOC chart with hover note](docs/images/dashboard_soc_hover.png)
+
+**Discharge session table** — every discharge logged, with duration, Ah consumed, %/day
+rate, average power, and your notes:
+
+![Discharge table](docs/images/table_discharge.png)
+
+---
+
+## Features
+
+### Summary Cards
+- **Usage**: running average and 7-day average battery drain (%/day and Ah/day), implied average power draw
+- **Power Remaining**: hours left at today's rate and 7-day average, Ah remaining in bank
+- **Full Battery Would Last**: projected days from 100% at each rate
+- **Charging**: last charge rate, daily maintenance hours, estimated time to 95% (generator) and 100% (shore)
+- Shore and Driving sessions are excluded from all off-grid averages automatically
+
+### State of Charge Chart
+- SOC over time with voltage (V) and current (A) overlaid on secondary axes
+- Background shading: orange = discharging, green = charging, grey = logger running/idle, white = logger off
+- Adaptive downsampling keeps the chart fast on large datasets while preserving full resolution near session boundaries
+- Session notes appear as hover tooltips over the shaded regions
+- Default view: last 3 days; range buttons for 3d / 7d / 30d / All
+- All subplots share the same x-axis and scroll together
+
+### Daily Battery Usage
+- % SOC consumed per calendar day, split at midnight
+- Running average line; today shown as partial with a note
+- 7-day and all-days averages (today excluded — incomplete day)
+
+### Charge Rate History
+- One subplot per charging type (Shore, Generator, Driving) with sessions that have data
+- **CC/CV phase analysis**: rates reflect the Constant Current phase only — not dragged down by the CV top-off tail
+- Rolling 7-session average line and all-time average dashed line, per type
+- Knee SOC: where the charger transitioned from CC to CV, tracked per session
+
+### Session Tables
+- **Discharge**: Start/End, SOC start/end, Drop, Ah, Duration, %/day, Avg Power, Note
+- **Charging**: Start/End, SOC start/end, Gain, Duration, %/hour, CC %/hour, Knee SOC, Avg A, Type
+- Notes save automatically; appear as hover tooltips on the SOC chart
+- Charge type labels (Shore / Generator / Driving) drive which sessions count toward off-grid averages
+- Shore Power checkbox on discharge sessions excludes them from all usage stats
+- Tables default to the 10 most recent sessions; a "Show all" checkbox expands to full history
+
+### Diagnostics
+Alerts for battery health issues, shown in a panel between the chart and the session tables:
+- **Declining charge rate**: recent sessions charging significantly slower than your historical average
+- **Thermal derating**: charger current drops >15% from peak within the first 30 minutes
+- **Knee SOC drift**: CC→CV transition appearing at a lower SOC than your rolling baseline (early sign of a weak cell)
+- **Parasitic drain**: SOC dropping during idle periods when no session was active
+
+### HTML Report
+- Same charts as the dashboard, exported as a standalone HTML file
+- `python3 -m victron.report` or via the **Download Report** button in the dashboard
+
+### Background Logger
+- Polls the BMV-712 over Bluetooth LE on a configurable interval (default: 1 minute)
+- Installs as a macOS launchd agent — logs automatically whenever your Mac is on, with no terminal open
+
+---
+
 ## Known Limitations
 
 - **Solar charging is not modelled.** The tool logs the effect of solar on battery SOC
@@ -64,7 +135,7 @@ and optionally installing a background agent that logs automatically whenever yo
 python3 victron/logger.py
 ```
 
-Polls every `poll_interval_minutes` (default 15). The setup wizard can install this as a
+Polls every `poll_interval_minutes` (default 1). The setup wizard can install this as a
 macOS launchd agent so it runs automatically in the background.
 
 ### Live dashboard
@@ -73,15 +144,8 @@ macOS launchd agent so it runs automatically in the background.
 ./start_dashboard.sh
 ```
 
-Opens a browser tab at `http://localhost:8050`. The dashboard shows:
-
-- **Summary cards** — current SOC, usage rate, hours remaining, generator time needed
-- **State of Charge chart** — SOC over time with voltage and current overlaid
-- **Daily Battery Usage** — % SOC consumed per calendar day, with 7-day average
-- **Charge Rate** — charging speed per session, grouped by source (Shore / Generator / Driving)
-- **Diagnostics** — alerts for declining charge rate, thermal derating, parasitic drain, and battery knee drift
-
-Hit **Refresh** to reload. Hit **Download Report** to save a standalone HTML file.
+Opens a browser tab at `http://localhost:8050`. Hit **Refresh** to reload data.
+Hit **Download Report** to save a standalone HTML file.
 
 ### HTML report
 
@@ -90,17 +154,6 @@ python3 -m victron.report               # last 30 days, opens in browser
 python3 -m victron.report --days 14     # last 14 days
 python3 -m victron.report --no-open     # generate without opening
 ```
-
----
-
-## Dashboard Tips
-
-- **Session notes**: click the Notes cell in either session table to add a comment.
-  Notes appear as hover tooltips on the SOC chart.
-- **Charge types**: label each charging session as Shore, Generator, or Driving.
-  Shore and Driving sessions are excluded from the summary cards so plugged-in days
-  don't skew your off-grid averages.
-- Notes and labels save automatically to the local database.
 
 ---
 
