@@ -1059,6 +1059,12 @@ def build_figure(readings, discharge_sessions, charging_sessions,
         showlegend=True, legend='legend',
     ), row=1, col=1)
     fig.add_trace(go.Scatter(
+        x=[None], y=[None], mode='markers', name='No data (session active)',
+        marker=dict(symbol='square', size=12, color='rgba(255, 165, 0, 0.25)',
+                    line=dict(color='rgba(255, 165, 0, 0.6)', width=1)),
+        showlegend=True, legend='legend',
+    ), row=1, col=1)
+    fig.add_trace(go.Scatter(
         x=[None], y=[None], mode='markers', name='No data (logger off)',
         marker=dict(symbol='square', size=12, color='white',
                     line=dict(color='#aaa', width=1)),
