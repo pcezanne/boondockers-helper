@@ -37,6 +37,11 @@ rate, average power, and your notes:
 
 ![Discharge table](docs/images/table_discharge.png)
 
+**Charging session table** — every charging session with gain, duration, charge rate,
+average amps, source type (Shore / Generator / Driving), and notes:
+
+![Charging table](docs/images/table_charging.png)
+
 ---
 
 ## Features
