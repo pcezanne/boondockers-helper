@@ -15,9 +15,13 @@ Methodology (matches BoondockingBatteries.csv):
   - Hours to target SOC    = (target_soc - current_soc) / measured charge rate
 
 Usage:
-    python3 report.py              # all data, open in browser
-    python3 report.py --days 7     # last 7 days
-    python3 report.py --no-open    # generate file without opening browser
+    python3 report.py                                    # all data, open in browser
+    python3 report.py --week                             # last 7 days
+    python3 report.py --2weeks                           # last 14 days
+    python3 report.py --days 30                          # last N days
+    python3 report.py --start 2026-05-01                 # from date to now
+    python3 report.py --start 2026-05-01 --end 2026-05-14  # explicit range
+    python3 report.py --no-open                          # generate without opening browser
 """
 
 import argparse
@@ -25,6 +29,7 @@ import configparser
 import hashlib
 import sqlite3
 import statistics
+import textwrap
 import webbrowser
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
@@ -45,22 +50,21 @@ def load_config():
     return cfg
 
 
-def load_readings(db_path, since=None):
+def load_readings(db_path, since=None, until=None):
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
+    where = 'WHERE soc IS NOT NULL AND current IS NOT NULL'
+    params = []
     if since:
-        rows = conn.execute(
-            """SELECT * FROM readings
-               WHERE soc IS NOT NULL AND current IS NOT NULL AND timestamp >= ?
-               ORDER BY timestamp""",
-            (since.isoformat(),),
-        ).fetchall()
-    else:
-        rows = conn.execute(
-            """SELECT * FROM readings
-               WHERE soc IS NOT NULL AND current IS NOT NULL
-               ORDER BY timestamp""",
-        ).fetchall()
+        where += ' AND timestamp >= ?'
+        params.append(since.isoformat())
+    if until:
+        where += ' AND timestamp <= ?'
+        params.append(until.isoformat())
+    rows = conn.execute(
+        f'SELECT * FROM readings {where} ORDER BY timestamp',
+        params,
+    ).fetchall()
     conn.close()
     return [dict(r) for r in rows]
 
@@ -1510,13 +1514,14 @@ def _diagnostics_panel_html(diagnostics):
 def generate_html(readings, discharge_sessions, charging_sessions,
                   discharge_stats, charging_stats, summary, output_path,
                   time_format='12h', downsample_cfg=None, charge_type_map=None,
-                  note_map=None, diagnostics=None):
+                  note_map=None, diagnostics=None, window_days=3):
     import plotly.io as pio
 
     fig = build_figure(readings, discharge_sessions, charging_sessions,
                        discharge_stats, charging_stats, summary,
                        time_format=time_format, downsample_cfg=downsample_cfg,
-                       charge_type_map=charge_type_map, note_map=note_map)
+                       charge_type_map=charge_type_map, note_map=note_map,
+                       window_days=window_days)
 
     chart_html = pio.to_html(fig, full_html=False, include_plotlyjs='cdn')
 
@@ -1903,12 +1908,35 @@ def filter_sessions(discharge_sessions, charging_sessions, min_pct=1.0):
 # ---------------------------------------------------------------------------
 
 def main():
-    parser = argparse.ArgumentParser(description='Generate Victron battery usage report')
-    parser.add_argument('--days', type=int, default=None,
-                        help='Limit report to last N days of data')
+    parser = argparse.ArgumentParser(
+        description='Generate Victron battery usage report',
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=textwrap.dedent("""\
+            Time window examples:
+              --week              last 7 days
+              --2weeks            last 14 days
+              --days 30           last 30 days
+              --start 2026-05-01              May 1 to now
+              --start 2026-05-01 --end 2026-05-14   specific range
+        """),
+    )
+    window = parser.add_mutually_exclusive_group()
+    window.add_argument('--days', type=int, metavar='N',
+                        help='Last N days of data')
+    window.add_argument('--week', action='store_true',
+                        help='Last 7 days (shorthand for --days 7)')
+    window.add_argument('--2weeks', dest='two_weeks', action='store_true',
+                        help='Last 14 days (shorthand for --days 14)')
+    window.add_argument('--start', metavar='YYYY-MM-DD',
+                        help='Start date (inclusive); combine with --end for a range')
+    parser.add_argument('--end', metavar='YYYY-MM-DD',
+                        help='End date (inclusive, used with --start)')
     parser.add_argument('--open', dest='open_browser', action='store_true', default=True)
     parser.add_argument('--no-open', dest='open_browser', action='store_false')
     args = parser.parse_args()
+
+    if args.end and not args.start:
+        parser.error('--end requires --start')
 
     cfg = load_config()
     db_path = cfg.get('logging', 'db_path', fallback='victron_data.db')
@@ -1928,11 +1956,30 @@ def main():
     output_dir = Path(cfg.get('report', 'output_dir', fallback='reports'))
     output_dir.mkdir(exist_ok=True)
 
-    since = None
-    if args.days:
-        since = datetime.now(timezone.utc) - timedelta(days=args.days)
+    # Resolve time window
+    since = until = None
+    window_days = 3  # default chart viewport
 
-    readings = load_readings(db_path, since=since)
+    if args.week:
+        since = datetime.now(timezone.utc) - timedelta(days=7)
+        window_days = 7
+    elif args.two_weeks:
+        since = datetime.now(timezone.utc) - timedelta(days=14)
+        window_days = 14
+    elif args.days:
+        since = datetime.now(timezone.utc) - timedelta(days=args.days)
+        window_days = args.days
+    elif args.start:
+        since = datetime.strptime(args.start, '%Y-%m-%d').replace(tzinfo=timezone.utc)
+        if args.end:
+            # end of the specified day (23:59:59)
+            until = (datetime.strptime(args.end, '%Y-%m-%d')
+                     .replace(hour=23, minute=59, second=59, tzinfo=timezone.utc))
+        # show the full requested range in the chart viewport
+        span = (until or datetime.now(timezone.utc)) - since
+        window_days = max(1, int(span.total_seconds() / 86400) + 1)
+
+    readings = load_readings(db_path, since=since, until=until)
     if not readings:
         print('No readings found. Run logger.py first to collect data.')
         return
@@ -1972,7 +2019,7 @@ def main():
                   discharge_stats, charging_stats, summary, output_path,
                   time_format=time_format, downsample_cfg=downsample_cfg,
                   charge_type_map=charge_type_map, note_map=note_map,
-                  diagnostics=diagnostics)
+                  diagnostics=diagnostics, window_days=window_days)
 
     def _fmt(d):
         if d is None: return 'N/A'
