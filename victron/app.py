@@ -912,8 +912,11 @@ def build_app(cfg):
         )
 
     # --- Note save callback (fires when any textarea loses focus) ---
+    # Saves the note then quickly rebuilds only the chart (skips diagnostics and
+    # table rebuild so it's much faster than a full Refresh).
     @app.callback(
         Output('data-store', 'data'),
+        Output('main-chart', 'figure', allow_duplicate=True),
         Input({'type': 'note', 'session': dash.ALL, 'stype': dash.ALL}, 'n_blur'),
         State({'type': 'note', 'session': dash.ALL, 'stype': dash.ALL}, 'value'),
         State({'type': 'note', 'session': dash.ALL, 'stype': dash.ALL}, 'id'),
@@ -922,11 +925,27 @@ def build_app(cfg):
     def save_notes(n_blurs, values, ids):
         ctx = dash.callback_context
         if not ctx.triggered:
-            return dash.no_update
+            return dash.no_update, dash.no_update
+        any_saved = False
         for n_blur, val, ident in zip(n_blurs, values, ids):
             if n_blur and val is not None:
                 save_note(db_path, ident['session'], ident['stype'], val)
-        return {'loaded': True}
+                any_saved = True
+        if not any_saved:
+            return dash.no_update, dash.no_update
+        fresh = load_all_data(cfg)
+        if fresh is None:
+            return {'loaded': True}, dash.no_update
+        notes = load_notes(fresh['db_path'])
+        note_map = {sid: d['note'] for sid, d in notes.items() if d.get('note')}
+        fig = build_figure(
+            fresh['readings'], fresh['discharge_sessions'], fresh['charging_sessions'],
+            fresh['discharge_stats'], fresh['charging_stats'], fresh['summary'],
+            time_format=fresh['time_format'], downsample_cfg=fresh['downsample_cfg'],
+            charge_type_map=fresh.get('charge_type_map'),
+            note_map=note_map or None,
+        )
+        return {'loaded': True}, fig
 
     # --- Charge type constraint: Driving and Shore are mutually exclusive ---
     @app.callback(
