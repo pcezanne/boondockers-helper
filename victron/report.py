@@ -1259,34 +1259,27 @@ def build_figure(readings, discharge_sessions, charging_sessions,
     for session in charging_sessions:
         _session_vrects(session, 'rgba(46, 139, 87, 0.25)')
 
-    # Session note hovers on SOC chart.
-    #
-    # Why not fill+hoveron='fills': Plotly's hovermode='closest' computes distance
-    # to the nearest DATA POINT, not polygon interior. The SOC line's data points
-    # always beat the fill polygon's 5 corner vertices. Fill hovers only fire at
-    # the corners (where there are no SOC points) — i.e. at data-gap boundaries.
-    #
-    # Solution: invisible scatter points at the same x-density as the SOC line,
-    # spread across 5 y-levels. Near the SOC line the line wins; elsewhere the
-    # note point wins because it is closer.
+    # Session note markers: one visible circle per noted session, pinned near the
+    # top of the SOC axis (y=97%) at the session's temporal midpoint.  A single
+    # point doesn't compete with the SOC/V/A traces — hover fires only when the
+    # cursor is directly over the marker.
     if note_map:
         def _escape(text, wrap=50):
             import textwrap
             lines = []
             for paragraph in text.splitlines():
                 lines.extend(textwrap.wrap(paragraph, wrap) or [''])
-            escaped = '<br>'.join(
+            return '<br>'.join(
                 l.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
                 for l in lines
             )
-            return escaped
 
-        # 5 y-levels every 20 SOC% — the SOC line wins hover within ~10% of its
-        # value; the note wins everywhere else in the session region.
-        _Y_LEVELS = [10, 30, 50, 70, 90]
+        _NOTE_Y = 97  # fixed SOC % — near top of axis, clear of most data
 
-        for sessions_list, stype in [(discharge_sessions, 'discharge'),
-                                     (charging_sessions, 'charge')]:
+        for sessions_list, stype, color in [
+            (discharge_sessions, 'discharge', 'rgba(230, 120, 0, 0.85)'),
+            (charging_sessions,  'charge',    'rgba(34, 120, 70, 0.85)'),
+        ]:
             for session in sessions_list:
                 if len(session) < 2:
                     continue
@@ -1297,32 +1290,17 @@ def build_figure(readings, discharge_sessions, charging_sessions,
 
                 t_start = to_local(parse_ts(session[0]['timestamp']))
                 t_end   = to_local(parse_ts(session[-1]['timestamp']))
-
-                # Sparse fixed-interval grid: one x-point every 30 min plus
-                # endpoints.  A 5-hour session → ~11 points × 5 y-levels = 55
-                # trace points vs ~3000 with the old per-downsampled-timestamp
-                # approach.  30-min spacing still beats the SOC line hover for
-                # any cursor position >~1% SOC away from the line.
-                _INTERVAL = timedelta(minutes=30)
-                xs_for_session = []
-                t = t_start
-                while t <= t_end:
-                    xs_for_session.append(t)
-                    t += _INTERVAL
-                if xs_for_session[-1] < t_end:
-                    xs_for_session.append(t_end)
-
-                # Build x/y grid: each x paired with every y-level
-                xs_grid, ys_grid = [], []
-                for x in xs_for_session:
-                    for y in _Y_LEVELS:
-                        xs_grid.append(x)
-                        ys_grid.append(y)
+                x_mid   = t_start + (t_end - t_start) / 2
 
                 fig.add_trace(go.Scatter(
-                    x=xs_grid, y=ys_grid,
+                    x=[x_mid], y=[_NOTE_Y],
                     mode='markers',
-                    marker=dict(size=16, color='rgba(0,0,0,0)'),
+                    marker=dict(
+                        symbol='circle',
+                        size=10,
+                        color=color,
+                        line=dict(color='white', width=1.5),
+                    ),
                     hovertemplate=f'<b>Note</b><br>{_escape(note)}<extra></extra>',
                     showlegend=False,
                     name='',
