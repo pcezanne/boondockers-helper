@@ -402,17 +402,17 @@ def _diagnostics_panel(diagnostics):
                  if d.get('diag_type') == 'parasitic_drain']
 
     def _split(all_lines, keep=5):
-        """Return (visible_lines, older_lines) keeping the last `keep` items visible."""
+        """Return (visible_lines, older_lines) keeping the first `keep` items visible."""
         if len(all_lines) <= keep:
             return all_lines, []
-        return all_lines[-keep:], all_lines[:-keep]
+        return all_lines[:keep], all_lines[keep:]
 
     cards = []
 
     if thermal:
         n = len(thermal)
         session_lines = [f"  {t['date']}: {t['peak']}A peak \u2192 {t['plateau']}A plateau"
-                         for t in thermal]
+                         for t in reversed(thermal)]
         visible, older = _split(session_lines)
         cards.append(_diag_card(
             _DIAG_COLORS['thermal'],
@@ -446,7 +446,7 @@ def _diagnostics_panel(diagnostics):
     if drain:
         n = len(drain)
         all_drain_lines = []
-        for d in drain:
+        for d in reversed(drain):
             try:
                 ps = d['period_start'][:16].replace('T', ' ')
                 pe = d['period_end'][:16].replace('T', ' ')
@@ -491,6 +491,7 @@ def _discharge_table(discharge_stats, notes, system_diags=None, show_all=False):
     system_diags = system_diags or []
     if not show_all:
         discharge_stats = discharge_stats[-10:]
+    discharge_stats = list(reversed(discharge_stats))
     # Build set of drain period_end timestamps (ISO prefix) for proximity check
     drain_ends = []
     for d in system_diags:
@@ -569,6 +570,7 @@ def _charging_table(charging_stats, notes, show_all=False):
         return html.P('No charging sessions recorded yet.', style={'color': '#999'})
     if not show_all:
         charging_stats = charging_stats[-10:]
+    charging_stats = list(reversed(charging_stats))
 
     _charge_type_options = [
         {'label': 'Shore',     'value': 'Shore'},
