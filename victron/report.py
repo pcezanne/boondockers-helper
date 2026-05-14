@@ -1274,7 +1274,7 @@ def build_figure(readings, discharge_sessions, charging_sessions,
                 for l in lines
             )
 
-        _NOTE_Y = 97  # fixed SOC % — near top of axis, clear of most data
+        _NOTE_Y = 3  # fixed SOC % — near bottom of axis, clear of SOC/V/A traces
 
         for sessions_list, stype, color in [
             (discharge_sessions, 'discharge', 'rgba(230, 120, 0, 0.85)'),
