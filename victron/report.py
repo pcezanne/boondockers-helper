@@ -1294,13 +1294,11 @@ def build_figure(readings, discharge_sessions, charging_sessions,
 
                 fig.add_trace(go.Scatter(
                     x=[x_mid], y=[_NOTE_Y],
-                    mode='markers',
-                    marker=dict(
-                        symbol='circle',
-                        size=10,
-                        color=color,
-                        line=dict(color='white', width=1.5),
-                    ),
+                    mode='markers+text',
+                    text=['ⓘ'],
+                    textposition='middle center',
+                    textfont=dict(size=16, color=color),
+                    marker=dict(size=22, color='rgba(0,0,0,0)'),  # invisible hit area
                     hovertemplate=f'<b>Note</b><br>{_escape(note)}<extra></extra>',
                     showlegend=False,
                     name='',
