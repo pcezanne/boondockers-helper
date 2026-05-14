@@ -505,6 +505,32 @@ thermal_derating_drop_pct = 15       ; % drop from peak to trigger the flag
 thermal_derating_window_minutes = 30  ; detection window for the initial peak
 ```
 
+**What the detector does and does not flag:**
+The detector requires both a >15% current drop from the early-window peak *and* that
+the drop is still descending after the 30-minute window. A one-time step down that
+happens right at the window boundary — with the session completing normally — is not
+flagged even if the plateau is 20% below the peak. This covers the common pattern of
+a charger settling from an initial boost to its rated output. A *continuous gradual
+decline* that crosses the threshold well into the session — the signature of a charger
+heating up over time — is always flagged.
+
+**How to confirm or rule out derating:**
+The definitive test is an *open-bay baseline*: open all charger bay doors (or access
+panels), run a full charging session on a cool morning (under 70°F / 21°C) using shore
+power or the generator — either source works. On a healthy system with good airflow,
+current should hold near its initial level for the entire CC phase and only taper
+naturally when the battery approaches the absorption setpoint. If derating flags
+disappear under these conditions but return when the bay is closed, restricted airflow
+is confirmed.
+
+**Case study — May 2026, Magnum MS-PAE:**
+Open-bay shore-power session on a 60°F morning: started at 92 A, dropped to 73 A at
+the 30-minute mark, completed normally — not flagged (drop at window boundary with
+normal CC→CV completion). Same week, closed-bay generator session in the evening:
+started at 71 A and declined continuously to 54 A over 90 minutes — flagged (sustained
+gradual decline well past the window). The open-bay test isolated the variable (bay
+temperature) and confirmed the detection is working correctly.
+
 ---
 
 ### Knee SOC Drift

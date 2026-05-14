@@ -784,6 +784,10 @@ def build_app(cfg):
                        style={'color': '#999'}),
             ], style={'maxWidth': '1100px', 'margin': '40px auto', 'padding': '0 20px'})
 
+        # Run full diagnostics first so that notes loaded below reflect fresh flags.
+        # (load_notes reads session_notes.flags, which compute_and_save_diagnostics writes.)
+        initial_diags = compute_and_save_diagnostics(data['db_path'], data, cfg)
+
         notes = load_notes(data['db_path'])
         note_map = {sid: d['note'] for sid, d in notes.items() if d.get('note')}
         fig = build_figure(
@@ -798,10 +802,6 @@ def build_app(cfg):
         n_readings = len(data['readings'])
         n_dis = len(data['discharge_stats'])
         n_chg = len(data['charging_stats'])
-
-        # Run full diagnostics on initial load (same as Refresh) so the panel
-        # is already populated when the page first opens.
-        initial_diags = compute_and_save_diagnostics(data['db_path'], data, cfg)
         system_diags = initial_diags.get('parasitic_drain', [])
 
         return html.Div([
@@ -1037,6 +1037,7 @@ def build_app(cfg):
         ts = datetime.now().strftime('%Y%m%d_%H%M%S')
         output_path = output_dir / f'report_{ts}.html'
         report_note_map = load_session_notes(fresh['db_path'])
+        diagnostics = compute_and_save_diagnostics(fresh['db_path'], fresh, cfg)
         generate_html(
             fresh['readings'], fresh['discharge_sessions'], fresh['charging_sessions'],
             fresh['discharge_stats'], fresh['charging_stats'], fresh['summary'],
@@ -1044,6 +1045,7 @@ def build_app(cfg):
             time_format=fresh['time_format'], downsample_cfg=fresh['downsample_cfg'],
             charge_type_map=fresh.get('charge_type_map'),
             note_map=report_note_map or None,
+            diagnostics=diagnostics,
         )
         # Open in system browser — works in both native window and browser tab modes.
         # dcc.send_file() is unreliable inside pywebview's WKWebView.

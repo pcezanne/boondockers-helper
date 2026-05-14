@@ -203,6 +203,54 @@ def test_derating_marginal_drop_not_flagged():
     assert is_derating is False
 
 
+def test_derating_flagged_with_eventual_cc_cv():
+    """Session with sustained current decline (drop_idx >> window_idx) must be flagged
+    even when the session eventually completes with a CC→CV knee.
+
+    This reproduces the May 14 scenario: bay doors closed, current declines from the
+    first reading and crosses the drop threshold well after the 30-minute window.
+    The session eventually reaches the absorption setpoint (CC→CV knee detected), but
+    because the drop happened *after* the window it is thermal derating, not settling.
+    """
+    # Build a 150-reading session at 1-min intervals (150 min total).
+    # window_idx ≈ 30 (30 min / 1 min).
+    # Current declines gradually from reading 0; it crosses 85% of peak (drop_thr)
+    # around reading 57 — well past window_idx=30.
+    # After reading 117 the current tapers sharply to simulate CC→CV, so
+    # _find_cc_cv_knee will detect a knee.
+    n = 150
+    peak_amps = 71.4
+    plateau_amps = 54.3          # ~24% below peak — above 15% threshold
+    drop_thr = peak_amps * 0.85  # 60.69 A
+
+    readings = []
+    t = _T0
+    for i in range(n):
+        frac = i / max(n - 1, 1)
+        soc = 60.0 + 35.0 * frac
+        if i < 117:
+            # Gradual linear decline from peak to plateau over the first 117 readings
+            current = peak_amps - (peak_amps - plateau_amps) * (i / 117)
+        else:
+            # Sharp CV taper from plateau down to ~5 A over the last 33 readings
+            cv_frac = (i - 117) / max(n - 1 - 117, 1)
+            current = plateau_amps - (plateau_amps - 5.0) * cv_frac
+            # Voltage holds at absorption to trigger _find_cc_cv_knee
+        voltage = 13.0 + (14.4 - 13.0) * (i / (n - 1))
+        readings.append(make_reading(t, soc=round(soc, 2),
+                                     current=round(current, 2),
+                                     voltage=round(voltage, 3)))
+        t += timedelta(minutes=1)
+
+    is_derating, peak, plateau = _detect_thermal_derating(readings)
+    assert is_derating is True, (
+        f"Expected thermal derating (drop_idx >> window_idx) but got False; "
+        f"peak={peak}, plateau={plateau}"
+    )
+    assert peak is not None
+    assert plateau is not None
+
+
 # ---------------------------------------------------------------------------
 # Group 2: charging_session_stats includes derating fields
 # ---------------------------------------------------------------------------

@@ -266,9 +266,11 @@ def _detect_thermal_derating(session_readings, drop_pct=15, window_minutes=30):
     3. Peak = max current in that window.
     4. Plateau = median current in the second half of the session.
     5. Flag if peak > 30 A and (peak − plateau) / peak ≥ drop_pct / 100.
-    6. Suppress false positive: if voltage at the first-drop reading is within
-       0.1 V of the session peak voltage, the charger had already reached the
-       absorption setpoint — this is a normal CC→CV transition, not derating.
+    6. Suppress false positive: if _find_cc_cv_knee detects an absorption knee,
+       the session completed normally.  Any early current drop was the charger
+       settling to its sustained CC rate (inrush → nominal), not heat throttling.
+       Sessions that abort before reaching absorption have no detectable knee
+       and are still flagged.
     """
     n = len(session_readings)
     if n < 15:
@@ -302,21 +304,25 @@ def _detect_thermal_derating(session_readings, drop_pct=15, window_minutes=30):
     if (peak - plateau) / peak < drop_pct / 100:
         return False, None, None
 
-    # Step 6: voltage check — suppress if the drop coincides with CV onset.
-    valid_v = [r.get('voltage') for r in session_readings if r.get('voltage') is not None]
-    if valid_v:
-        v_peak = max(valid_v)
-        peak_idx = early.index(peak)
-        drop_threshold = peak * (1 - drop_pct / 100)
+    # Step 6: suppress false positive only when the current drop occurred WITHIN the
+    # early window AND the session completed with a CC→CV knee.
+    #
+    # Physical logic:
+    # - Drop within the window + completed session → charger settling from an initial
+    #   boost to its rated CC current (inrush → nominal).  Not derating.
+    # - Drop AFTER the window → the current had already been declining for more than
+    #   30 min before crossing the threshold.  That sustained throttle is thermal
+    #   derating, regardless of whether the session eventually completed normally.
+    if _find_cc_cv_knee(session_readings) is not None:
+        peak_idx_l = early.index(peak)
+        drop_thr = peak * (1 - drop_pct / 100)
         drop_idx = next(
-            (i for i in range(peak_idx, n)
-             if (session_readings[i].get('current') or 0) < drop_threshold),
+            (i for i in range(peak_idx_l, n)
+             if (session_readings[i].get('current') or 0) < drop_thr),
             None,
         )
-        if drop_idx is not None:
-            v_at_drop = session_readings[drop_idx].get('voltage')
-            if v_at_drop is not None and v_at_drop >= v_peak - 0.1:
-                return False, None, None  # voltage at absorption — CC→CV, not derating
+        if drop_idx is None or drop_idx <= window_idx:
+            return False, None, None
 
     return True, round(peak, 1), round(plateau, 1)
 
@@ -1403,10 +1409,107 @@ def build_figure(readings, discharge_sessions, charging_sessions,
     return fig
 
 
+def _diagnostics_panel_html(diagnostics):
+    """Render the diagnostics panel as a plain HTML string for static reports."""
+    if not diagnostics:
+        return ''
+
+    thermal   = diagnostics.get('thermal_derating', [])
+    knee_list = diagnostics.get('knee_soc', [])
+    rate_map  = diagnostics.get('charge_rate_decline', {})
+    drain     = diagnostics.get('parasitic_drain', [])
+
+    def _split(all_lines, keep=5):
+        if len(all_lines) <= keep:
+            return all_lines, []
+        return all_lines[:keep], all_lines[keep:]
+
+    def _card(color, title, lines, detail_lines=None):
+        body = f'<strong style="color:{color}">{title}</strong>'
+        for line in lines:
+            body += f'<br>{line}'
+        if detail_lines:
+            n = len(detail_lines)
+            inner = ''.join(f'<br>{l}' for l in detail_lines)
+            label = f'\u25b6 {n} earlier event{"s" if n > 1 else ""}'
+            body += (
+                f'<details><summary style="cursor:pointer;color:#888;'
+                f'font-size:0.9em;margin-top:6px">{label}</summary>{inner}</details>'
+            )
+        return f'<div class="diag-card" style="border-left:4px solid {color}">{body}</div>\n'
+
+    cards = ''
+
+    if thermal:
+        n = len(thermal)
+        session_lines = [
+            f"&nbsp;&nbsp;{t['date']}: {t['peak']}A peak &rarr; {t['plateau']}A plateau"
+            for t in reversed(thermal)
+        ]
+        visible, older = _split(session_lines)
+        cards += _card(
+            '#c0392b',
+            f'Thermal Derating &mdash; {n} session{"s" if n > 1 else ""}',
+            ['Charger output dropped significantly within the first 30 minutes.',
+             'Check charger bay ventilation and airflow path.'] + visible,
+            detail_lines=older or None,
+        )
+
+    if knee_list:
+        item = knee_list[-1]
+        cards += _card(
+            '#f39c12',
+            'CC&rarr;CV Knee SOC Drift',
+            [f"Latest session: knee at {item['knee_soc']:.1f}% "
+             f"vs baseline median {item['baseline_median']}% "
+             f"(&Delta; {item['delta']} pts).",
+             'Possible BMS protection or thermal limiting at lower SOC than normal.'],
+        )
+
+    for ctype, info in rate_map.items():
+        cards += _card(
+            '#e67e22',
+            f'Charge Rate Declining &mdash; {ctype}',
+            [f"Recent 3-session CC avg: {info['recent_avg']:.2f}%/hr &nbsp;"
+             f"vs all-time avg: {info['all_time_avg']:.2f}%/hr "
+             f"({info['decline_pct']:.0f}% decline).",
+             'Check battery connections, charger output, and source health.'],
+        )
+
+    if drain:
+        n = len(drain)
+        all_drain_lines = []
+        for d in reversed(drain):
+            try:
+                ps = d['period_start'][:16].replace('T', ' ')
+                pe = d['period_end'][:16].replace('T', ' ')
+            except Exception:
+                ps = pe = '&mdash;'
+            all_drain_lines.append(
+                f"&nbsp;&nbsp;{ps} &ndash; {pe}: {d['soc_drop']:.1f}% SOC lost"
+                f" over {d['hours']:.1f}h"
+            )
+        visible, older = _split(all_drain_lines)
+        cards += _card(
+            '#2980b9',
+            f'Possible Parasitic Drain &mdash; {n} event{"s" if n > 1 else ""}',
+            ['SOC dropped during idle periods with no active session.',
+             'Check for loads running while the battery was otherwise idle.'] + visible,
+            detail_lines=older or None,
+        )
+
+    header = '<h3 style="color:#555;margin:0 0 10px 0;font-size:1em;font-weight:600;text-transform:uppercase;letter-spacing:0.05em">Diagnostics</h3>'
+    if not cards:
+        no_flags = '<p style="color:#999;font-size:0.88em;margin:0">No anomalies detected.</p>'
+        return f'<div class="diag-panel">{header}{no_flags}</div>\n'
+
+    return f'<div class="diag-panel">{header}{cards}</div>\n'
+
+
 def generate_html(readings, discharge_sessions, charging_sessions,
                   discharge_stats, charging_stats, summary, output_path,
                   time_format='12h', downsample_cfg=None, charge_type_map=None,
-                  note_map=None):
+                  note_map=None, diagnostics=None):
     import plotly.io as pio
 
     fig = build_figure(readings, discharge_sessions, charging_sessions,
@@ -1615,6 +1718,19 @@ def generate_html(readings, discharge_sessions, charging_sessions,
   tbody td {{ padding: 8px 12px; border-bottom: 1px solid #e8ecf0; }}
   tbody tr:hover {{ background: #f4f6f9; }}
   .note {{ color: #999; font-size: 0.8em; margin-top: 32px; }}
+  .diag-panel {{
+    margin-top: 28px; margin-bottom: 4px;
+    padding: 14px 18px;
+    border: 1px solid #e0e0e0;
+    border-radius: 8px;
+    background: #fff;
+  }}
+  .diag-card {{
+    padding: 12px 16px; margin-bottom: 10px;
+    border-radius: 6px; background: #fafafa;
+    font-size: 0.88em; line-height: 1.5;
+  }}
+  .diag-card details summary {{ cursor: pointer; }}
 </style>
 </head>
 <body>
@@ -1689,6 +1805,8 @@ def generate_html(readings, discharge_sessions, charging_sessions,
 </div>
 
 {chart_html}
+
+{_diagnostics_panel_html(diagnostics or {{}})}
 
 <h2>Discharge Sessions</h2>
 <table>
@@ -1834,12 +1952,26 @@ def main():
     summary = compute_summary(discharge_sessions, discharge_stats, charging_stats,
                               fallback_rate, current_soc=current_soc, target_soc=target_soc,
                               capacity_ah=capacity_ah, charge_type_map=charge_type_map)
+
+    cfg_diag = {
+        'knee_soc_baseline_sessions':        cfg.getint('diagnostics', 'knee_soc_baseline_sessions', fallback=5),
+        'knee_soc_drop_threshold_pct':       cfg.getfloat('diagnostics', 'knee_soc_drop_threshold_pct', fallback=10),
+        'charge_rate_decline_threshold_pct': cfg.getfloat('diagnostics', 'charge_rate_decline_threshold_pct', fallback=20),
+        'thermal_derating_drop_pct':         cfg.getfloat('diagnostics', 'thermal_derating_drop_pct', fallback=15),
+        'thermal_derating_window_minutes':   cfg.getfloat('diagnostics', 'thermal_derating_window_minutes', fallback=30),
+        'parasitic_drain_threshold_pct':     cfg.getfloat('diagnostics', 'parasitic_drain_threshold_pct', fallback=2),
+        'parasitic_drain_min_hours':         cfg.getfloat('diagnostics', 'parasitic_drain_min_hours', fallback=4),
+    }
+    diagnostics = compute_diagnostics(charging_stats, discharge_stats, readings,
+                                      charge_type_map, cfg_diag)
+
     ts = datetime.now().strftime('%Y%m%d_%H%M%S')
     output_path = output_dir / f'report_{ts}.html'
     generate_html(readings, discharge_sessions, charging_sessions,
                   discharge_stats, charging_stats, summary, output_path,
                   time_format=time_format, downsample_cfg=downsample_cfg,
-                  charge_type_map=charge_type_map, note_map=note_map)
+                  charge_type_map=charge_type_map, note_map=note_map,
+                  diagnostics=diagnostics)
 
     def _fmt(d):
         if d is None: return 'N/A'
