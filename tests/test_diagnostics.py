@@ -37,6 +37,10 @@ def _derating_session(n_early=15, peak_amps=85.0, plateau_amps=65.0,
 
     First n_early readings at peak_amps, remainder at plateau_amps.
     Total readings: n_early + 30.
+
+    Voltage rises from 13.0 V to ~14.0 V during the high-current phase, then
+    continues slowly to ~14.15 V — well below a typical absorption setpoint
+    (14.4 V).  This lets the voltage check distinguish derating from CC→CV.
     """
     readings = []
     t = _T0
@@ -45,7 +49,38 @@ def _derating_session(n_early=15, peak_amps=85.0, plateau_amps=65.0,
         frac = i / max(n_total - 1, 1)
         soc = soc_start + (soc_end - soc_start) * frac
         current = peak_amps if i < n_early else plateau_amps
-        readings.append(make_reading(t, soc=round(soc, 2), current=current))
+        if i < n_early:
+            voltage = 13.0 + (14.0 - 13.0) * (i / n_early)
+        else:
+            voltage = 14.0 + (14.15 - 14.0) * ((i - n_early) / 30)
+        readings.append(make_reading(t, soc=round(soc, 2), current=current,
+                                     voltage=round(voltage, 3)))
+        t += timedelta(minutes=interval_minutes)
+    return readings
+
+
+def _cv_transition_session(n_cc=15, n_cv=30, peak_amps=85.0, cv_end_amps=15.0,
+                            v_absorption=14.4, interval_minutes=1,
+                            soc_start=60.0, soc_end=95.0):
+    """Build a session whose current drop looks like derating but voltage confirms CC→CV.
+
+    Voltage rises to v_absorption during the CC phase, then holds flat.
+    """
+    readings = []
+    t = _T0
+    n_total = n_cc + n_cv
+    for i in range(n_total):
+        frac = i / max(n_total - 1, 1)
+        soc = soc_start + (soc_end - soc_start) * frac
+        if i < n_cc:
+            current = peak_amps
+            voltage = 13.0 + (v_absorption - 13.0) * (i / n_cc)
+        else:
+            cv_frac = (i - n_cc) / max(n_cv - 1, 1)
+            current = peak_amps - (peak_amps - cv_end_amps) * cv_frac
+            voltage = v_absorption
+        readings.append(make_reading(t, soc=round(soc, 2), current=round(current, 1),
+                                     voltage=round(voltage, 3)))
         t += timedelta(minutes=interval_minutes)
     return readings
 
@@ -148,6 +183,16 @@ def test_derating_not_detected_low_peak():
         readings.append(make_reading(t + timedelta(minutes=i), soc=70.0 + i * 0.3, current=current))
     is_derating, peak, plateau = _detect_thermal_derating(readings)
     assert is_derating is False
+
+
+def test_derating_not_flagged_cc_cv_transition():
+    """Current drops within the window but voltage is at absorption setpoint — CC→CV, not derating."""
+    sess = _cv_transition_session(n_cc=15, n_cv=30, peak_amps=85.0, cv_end_amps=15.0,
+                                   v_absorption=14.4)
+    is_derating, peak, plateau = _detect_thermal_derating(sess)
+    assert is_derating is False
+    assert peak is None
+    assert plateau is None
 
 
 def test_derating_marginal_drop_not_flagged():

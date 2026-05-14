@@ -266,6 +266,9 @@ def _detect_thermal_derating(session_readings, drop_pct=15, window_minutes=30):
     3. Peak = max current in that window.
     4. Plateau = median current in the second half of the session.
     5. Flag if peak > 30 A and (peak − plateau) / peak ≥ drop_pct / 100.
+    6. Suppress false positive: if voltage at the first-drop reading is within
+       0.1 V of the session peak voltage, the charger had already reached the
+       absorption setpoint — this is a normal CC→CV transition, not derating.
     """
     n = len(session_readings)
     if n < 15:
@@ -296,9 +299,26 @@ def _detect_thermal_derating(session_readings, drop_pct=15, window_minutes=30):
         return False, None, None
     if peak <= 0:
         return False, None, None
-    if (peak - plateau) / peak >= drop_pct / 100:
-        return True, round(peak, 1), round(plateau, 1)
-    return False, None, None
+    if (peak - plateau) / peak < drop_pct / 100:
+        return False, None, None
+
+    # Step 6: voltage check — suppress if the drop coincides with CV onset.
+    valid_v = [r.get('voltage') for r in session_readings if r.get('voltage') is not None]
+    if valid_v:
+        v_peak = max(valid_v)
+        peak_idx = early.index(peak)
+        drop_threshold = peak * (1 - drop_pct / 100)
+        drop_idx = next(
+            (i for i in range(peak_idx, n)
+             if (session_readings[i].get('current') or 0) < drop_threshold),
+            None,
+        )
+        if drop_idx is not None:
+            v_at_drop = session_readings[drop_idx].get('voltage')
+            if v_at_drop is not None and v_at_drop >= v_peak - 0.1:
+                return False, None, None  # voltage at absorption — CC→CV, not derating
+
+    return True, round(peak, 1), round(plateau, 1)
 
 
 # ---------------------------------------------------------------------------
