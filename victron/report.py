@@ -970,12 +970,16 @@ def build_figure(readings, discharge_sessions, charging_sessions,
         downsample_cfg = {'tier1_hours': 6.0, 'tier2_hours': 24.0,
                           'tier2_mins': 5.0, 'tier3_mins': 15.0}
 
-    # Build session boundary set so LTTB preserves session start/end points
+    # Build boundary set for LTTB: discharge sessions pin start/end only;
+    # charging sessions pin every reading so CC/CV curves are always full resolution.
     boundary_ts_set = set()
-    for session in discharge_sessions + charging_sessions:
+    for session in discharge_sessions:
         if session:
             boundary_ts_set.add(session[0]['timestamp'])
             boundary_ts_set.add(session[-1]['timestamp'])
+    for session in charging_sessions:
+        for r in session:
+            boundary_ts_set.add(r['timestamp'])
 
     timestamps, soc_values, ds_readings = adaptive_downsample(readings, boundary_ts_set, downsample_cfg)
     voltage_values = [r.get('voltage') for r in ds_readings]
