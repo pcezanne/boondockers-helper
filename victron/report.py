@@ -1062,6 +1062,7 @@ def build_figure(readings, discharge_sessions, charging_sessions,
         mode='lines', name='State of Charge',
         line=dict(color='steelblue', width=2),
         showlegend=True, legend='legend',
+        hovertemplate=f'<b>%{{y:.1f}}% SOC</b><br>%{{x|{tick_fmt}}}<extra></extra>',
     ), row=1, col=1)
 
     # Midnight lines
