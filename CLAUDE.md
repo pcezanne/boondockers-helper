@@ -125,9 +125,14 @@ Running the HTML report (both forms work from `src/`):
 - `python3 -m victron.report`
 
 Running the live dashboard:
-- `./start_dashboard.sh`          — opens browser tab at localhost:8050
-- `./start_dashboard.sh --native` — opens native macOS window via pywebview
-- `./start_dashboard.sh --no-open` — start server only
+- `./start_dashboard.sh`                              — opens browser tab at localhost:8050
+- `./start_dashboard.sh --week`                       — rolling last 7 days on every Refresh
+- `./start_dashboard.sh --2weeks`                     — rolling last 14 days
+- `./start_dashboard.sh --days 30`                    — rolling last N days
+- `./start_dashboard.sh --start 2026-05-01`           — from date to now (grows on Refresh)
+- `./start_dashboard.sh --start … --end …`            — fixed range (same window on every Refresh)
+- `./start_dashboard.sh --native`                     — native macOS window via pywebview
+- `./start_dashboard.sh --no-open`                    — start server only
 
 ## Running Tests
 

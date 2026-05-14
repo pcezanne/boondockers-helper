@@ -5,10 +5,15 @@
 app.py — Interactive Plotly Dash dashboard for Victron BMV-712 data.
 
 Usage:
-    python3 victron/app.py              # opens browser tab at localhost:8050
-    python3 victron/app.py --native     # opens native macOS window via pywebview
-    python3 victron/app.py --no-open    # start server without opening anything
-    python3 -m victron.app              # same as above
+    python3 victron/app.py                              # all data, browser tab
+    python3 victron/app.py --week                       # rolling last 7 days
+    python3 victron/app.py --2weeks                     # rolling last 14 days
+    python3 victron/app.py --days 30                    # rolling last N days
+    python3 victron/app.py --start 2026-05-01           # from date to now
+    python3 victron/app.py --start 2026-05-01 --end 2026-05-14  # fixed range
+    python3 victron/app.py --native                     # native macOS window
+    python3 victron/app.py --no-open                    # server only
+    python3 -m victron.app                              # same as above
 """
 
 import argparse
@@ -284,7 +289,15 @@ def save_note(db_path, sid, session_type, note, charge_type=None, shore_power=No
 # Data loading
 # ---------------------------------------------------------------------------
 
-def load_all_data(cfg):
+def load_all_data(cfg, time_window=None):
+    """Load and process all readings.
+
+    time_window (optional dict):
+      since_delta  — timedelta for a rolling window (recomputed from now each call)
+      since_fixed  — fixed start datetime (--start)
+      until_fixed  — fixed end datetime (--end)
+      window_days  — chart viewport width in days
+    """
     db_path = cfg.get('logging', 'db_path', fallback='victron_data.db')
     charging_threshold = cfg.getfloat('charging', 'threshold_amps', fallback=2.0)
     max_gap_hours = cfg.getfloat('charging', 'max_gap_hours', fallback=4.0)
@@ -300,7 +313,17 @@ def load_all_data(cfg):
         'tier3_mins':  cfg.getfloat('report', 'downsample_tier3_mins',  fallback=15.0),
     }
 
-    readings = load_readings(db_path)
+    since = until = None
+    window_days = 3
+    if time_window:
+        window_days = time_window.get('window_days', 3)
+        if time_window.get('since_delta'):
+            since = datetime.now(timezone.utc) - time_window['since_delta']
+        elif time_window.get('since_fixed'):
+            since = time_window['since_fixed']
+        until = time_window.get('until_fixed')
+
+    readings = load_readings(db_path, since=since, until=until)
     if not readings:
         return None
 
@@ -340,6 +363,7 @@ def load_all_data(cfg):
         target_soc=target_soc,
         charge_type_map=charge_type_map,
         shore_power_sids=shore_power_sids,
+        window_days=window_days,
     )
 
 
@@ -767,13 +791,13 @@ def _summary_cards(summary):
 # App
 # ---------------------------------------------------------------------------
 
-def build_app(cfg):
+def build_app(cfg, time_window=None):
     from victron.report import build_figure
 
     app = dash.Dash(__name__, suppress_callback_exceptions=True)
     app.title = 'Victron Dashboard'
 
-    data = load_all_data(cfg)
+    data = load_all_data(cfg, time_window)
     db_path = cfg.get('logging', 'db_path', fallback='victron_data.db')
 
     def make_layout(data):
@@ -796,6 +820,7 @@ def build_app(cfg):
             time_format=data['time_format'], downsample_cfg=data['downsample_cfg'],
             charge_type_map=data.get('charge_type_map'),
             note_map=note_map or None,
+            window_days=data.get('window_days', 3),
         )
 
         generated = datetime.now().strftime('%Y-%m-%d %H:%M')
@@ -889,7 +914,7 @@ def build_app(cfg):
     def refresh_data(_n, show_all_discharge_val, show_all_charging_val):
         show_all_discharge = 'show_all' in (show_all_discharge_val or [])
         show_all_charging = 'show_all' in (show_all_charging_val or [])
-        fresh = load_all_data(cfg)
+        fresh = load_all_data(cfg, time_window)
         if fresh is None:
             empty = html.P('No data.', style={'color': '#999'})
             import plotly.graph_objects as go
@@ -903,6 +928,7 @@ def build_app(cfg):
             time_format=fresh['time_format'], downsample_cfg=fresh['downsample_cfg'],
             charge_type_map=fresh.get('charge_type_map'),
             note_map=note_map or None,
+            window_days=fresh.get('window_days', 3),
         )
         system_diags = diagnostics.get('parasitic_drain', [])
         return (
@@ -935,7 +961,7 @@ def build_app(cfg):
                 any_saved = True
         if not any_saved:
             return dash.no_update, dash.no_update
-        fresh = load_all_data(cfg)
+        fresh = load_all_data(cfg, time_window)
         if fresh is None:
             return {'loaded': True}, dash.no_update
         notes = load_notes(fresh['db_path'])
@@ -946,6 +972,7 @@ def build_app(cfg):
             time_format=fresh['time_format'], downsample_cfg=fresh['downsample_cfg'],
             charge_type_map=fresh.get('charge_type_map'),
             note_map=note_map or None,
+            window_days=fresh.get('window_days', 3),
         )
         return {'loaded': True}, fig
 
@@ -1008,7 +1035,7 @@ def build_app(cfg):
             is_shore = 'shore' in (val or [])
             note = existing.get(sid, {}).get('note', '')
             save_note(db_path, sid, 'discharge', note, shore_power=is_shore)
-        fresh = load_all_data(cfg)
+        fresh = load_all_data(cfg, time_window)
         if fresh is None:
             return dash.no_update, dash.no_update
         notes = load_notes(fresh['db_path'])
@@ -1019,6 +1046,7 @@ def build_app(cfg):
             time_format=fresh['time_format'], downsample_cfg=fresh['downsample_cfg'],
             charge_type_map=fresh.get('charge_type_map'),
             note_map=note_map or None,
+            window_days=fresh.get('window_days', 3),
         )
         return fig, _summary_cards(fresh['summary'])
 
@@ -1029,7 +1057,7 @@ def build_app(cfg):
         prevent_initial_call=True,
     )
     def download_report(_n):
-        fresh = load_all_data(cfg)
+        fresh = load_all_data(cfg, time_window)
         if fresh is None:
             return dash.no_update
         output_dir = Path(cfg.get('report', 'output_dir', fallback='reports'))
@@ -1046,6 +1074,7 @@ def build_app(cfg):
             charge_type_map=fresh.get('charge_type_map'),
             note_map=report_note_map or None,
             diagnostics=diagnostics,
+            window_days=fresh.get('window_days', 3),
         )
         # Open in system browser — works in both native window and browser tab modes.
         # dcc.send_file() is unreliable inside pywebview's WKWebView.
@@ -1060,15 +1089,60 @@ def build_app(cfg):
 # ---------------------------------------------------------------------------
 
 def main():
-    parser = argparse.ArgumentParser(description='Victron interactive dashboard')
+    import textwrap
+    parser = argparse.ArgumentParser(
+        description='Victron interactive dashboard',
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=textwrap.dedent("""\
+            Time window — controls which readings are loaded on every Refresh:
+              --week              rolling last 7 days
+              --2weeks            rolling last 14 days
+              --days N            rolling last N days
+              --start YYYY-MM-DD  from that date to now (grows on Refresh)
+              --start … --end …   fixed range (Refresh re-reads same window)
+        """),
+    )
     parser.add_argument('--native', action='store_true',
                         help='Open in a native macOS window via pywebview')
     parser.add_argument('--no-open', dest='open_browser', action='store_false', default=True,
                         help='Start the server without opening a browser or window')
+    window = parser.add_mutually_exclusive_group()
+    window.add_argument('--days', type=int, metavar='N',
+                        help='Rolling last N days')
+    window.add_argument('--week', action='store_true',
+                        help='Rolling last 7 days')
+    window.add_argument('--2weeks', dest='two_weeks', action='store_true',
+                        help='Rolling last 14 days')
+    window.add_argument('--start', metavar='YYYY-MM-DD',
+                        help='Start date; combine with --end for a fixed range')
+    parser.add_argument('--end', metavar='YYYY-MM-DD',
+                        help='End date (inclusive, used with --start)')
     args = parser.parse_args()
 
+    if args.end and not args.start:
+        parser.error('--end requires --start')
+
+    # Build time_window dict for load_all_data
+    time_window = None
+    if args.week:
+        time_window = {'since_delta': timedelta(days=7), 'window_days': 7}
+    elif args.two_weeks:
+        time_window = {'since_delta': timedelta(days=14), 'window_days': 14}
+    elif args.days:
+        time_window = {'since_delta': timedelta(days=args.days), 'window_days': args.days}
+    elif args.start:
+        since_fixed = datetime.strptime(args.start, '%Y-%m-%d').replace(tzinfo=timezone.utc)
+        until_fixed = None
+        if args.end:
+            until_fixed = (datetime.strptime(args.end, '%Y-%m-%d')
+                           .replace(hour=23, minute=59, second=59, tzinfo=timezone.utc))
+        span = (until_fixed or datetime.now(timezone.utc)) - since_fixed
+        wdays = max(1, int(span.total_seconds() / 86400) + 1)
+        time_window = {'since_fixed': since_fixed, 'until_fixed': until_fixed,
+                       'window_days': wdays}
+
     cfg = load_config()
-    app = build_app(cfg)
+    app = build_app(cfg, time_window)
 
     if args.native:
         import webview
