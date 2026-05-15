@@ -21,6 +21,29 @@ what your generator does in two hours, and when something is off.
 
 ---
 
+## Disclaimer
+
+This software is provided for informational purposes only. **You are solely responsible
+for all decisions and actions related to your battery system, inverter, charger, and any
+equipment connected to them** — including but not limited to your RV, van, or off-grid
+electrical system, and any hardware used to run this software (Mac, Raspberry Pi, or
+otherwise).
+
+The data displayed by this tool is only as accurate as the sensor readings from your
+Victron BMV-712 and the configuration you supply. Incorrect configuration, sensor error,
+Bluetooth gaps, or software bugs can all produce inaccurate readings. Do not rely on this
+tool as your sole means of monitoring battery state or making decisions that could affect
+safety.
+
+**The author(s) of this software accept no responsibility or liability of any kind** for
+damage to batteries, inverters, chargers, vehicles, property, or any other equipment;
+for fire, electrical failure, or any other hazardous condition; or for any loss —
+financial or otherwise — arising from the use or misuse of this software, however caused.
+
+Use at your own risk.
+
+---
+
 ## Screenshots
 
 **Summary cards** — the answers you actually need, at a glance:
@@ -89,7 +112,7 @@ Alerts for battery health issues, shown in a panel between the chart and the ses
 
 ### HTML Report
 - Same charts as the dashboard, exported as a standalone HTML file
-- `python3 -m victron.report` or via the **Download Report** button in the dashboard
+- `python3 -m boondockers.report` or via the **Download Report** button in the dashboard
 
 ### Background Logger
 - Polls the BMV-712 over Bluetooth LE on a configurable interval (default: 1 minute)
@@ -137,7 +160,7 @@ and optionally installing a background agent that logs automatically whenever yo
 ### Continuous logging
 
 ```bash
-python3 victron/logger.py
+python3 boondockers/providers/victron_ble.py
 ```
 
 Polls every `poll_interval_minutes` (default 1). The setup wizard can install this as a
@@ -155,9 +178,9 @@ Hit **Download Report** to save a standalone HTML file.
 ### HTML report
 
 ```bash
-python3 -m victron.report               # last 30 days, opens in browser
-python3 -m victron.report --days 14     # last 14 days
-python3 -m victron.report --no-open     # generate without opening
+python3 -m boondockers.report               # last 30 days, opens in browser
+python3 -m boondockers.report --days 14     # last 14 days
+python3 -m boondockers.report --no-open     # generate without opening
 ```
 
 ---
@@ -193,17 +216,20 @@ bash setup/setup.sh --skip-config
 
 ```
 src/
-├── victron/
-│   ├── logger.py        — BLE polling daemon
-│   ├── report.py        — HTML report generator
-│   └── app.py           — Plotly Dash live dashboard
-├── tests/               — unit tests (pytest)
-├── setup/               — setup wizard and background agent files
-├── config.ini           — your credentials and settings (gitignored)
-├── config.ini.example   — safe template — copy this to config.ini
-├── victron_data.db      — SQLite database (gitignored, created on first run)
-├── reports/             — generated HTML reports (gitignored)
-└── requirements.txt     — Python dependencies
+├── boondockers/
+│   ├── engine.py                — pure computation (session detection, stats, diagnostics)
+│   ├── db.py                    — schema management and all SQLite I/O
+│   ├── report.py                — HTML report generator
+│   ├── app.py                   — Plotly Dash live dashboard
+│   └── providers/
+│       └── victron_ble.py       — BLE polling daemon (Victron BMV-712)
+├── tests/                       — unit tests (pytest)
+├── setup/                       — setup wizard and background agent files
+├── config.ini                   — your credentials and settings (gitignored)
+├── config.ini.example           — safe template — copy this to config.ini
+├── victron_data.db              — SQLite database (gitignored, created on first run)
+├── reports/                     — generated HTML reports (gitignored)
+└── requirements.txt             — Python dependencies
 ```
 
 ---
