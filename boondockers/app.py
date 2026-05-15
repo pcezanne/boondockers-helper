@@ -2,22 +2,21 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2026 Paul Cezanne
 """
-app.py — Interactive Plotly Dash dashboard for Victron BMV-712 data.
+app.py — Interactive Plotly Dash dashboard for Boondockers' Helper.
 
 Usage:
-    python3 victron/app.py                              # all data, browser tab
-    python3 victron/app.py --week                       # rolling last 7 days
-    python3 victron/app.py --2weeks                     # rolling last 14 days
-    python3 victron/app.py --days 30                    # rolling last N days
-    python3 victron/app.py --start 2026-05-01           # from date to now
-    python3 victron/app.py --start 2026-05-01 --end 2026-05-14  # fixed range
-    python3 victron/app.py --native                     # native macOS window
-    python3 victron/app.py --no-open                    # server only
-    python3 -m victron.app                              # same as above
+    python3 boondockers/app.py                              # all data, browser tab
+    python3 boondockers/app.py --week                       # rolling last 7 days
+    python3 boondockers/app.py --2weeks                     # rolling last 14 days
+    python3 boondockers/app.py --days 30                    # rolling last N days
+    python3 boondockers/app.py --start 2026-05-01           # from date to now
+    python3 boondockers/app.py --start 2026-05-01 --end 2026-05-14  # fixed range
+    python3 boondockers/app.py --native                     # native macOS window
+    python3 boondockers/app.py --no-open                    # server only
+    python3 -m boondockers.app                              # same as above
 """
 
 import argparse
-import hashlib
 import sqlite3
 import threading
 import webbrowser
@@ -27,156 +26,36 @@ from pathlib import Path
 import dash
 from dash import Input, Output, State, dcc, html
 
-from victron.report import (
+from boondockers.engine import (
+    charging_session_stats,
     compute_diagnostics,
     compute_summary,
     detect_charging_sessions,
     detect_sessions,
     filter_sessions,
-    charging_session_stats,
-    generate_html,
-    load_charge_types,
-    load_config,
-    load_readings,
-    load_session_notes,
+    session_id,
     session_stats,
 )
+from boondockers.db import (
+    ensure_schema,
+    load_charge_types,
+    load_diagnostics,
+    load_notes,
+    load_readings,
+    load_session_notes,
+    load_shore_power_sessions,
+    save_note,
+    _save_session_flags,
+)
+from boondockers.report import build_figure, generate_html, load_config
 
 CONFIG_PATH = Path(__file__).parent.parent / 'config.ini'
 APP_PORT = 8050
 
 
 # ---------------------------------------------------------------------------
-# Session ID — deterministic, survives re-detection
-# ---------------------------------------------------------------------------
-
-def session_id(session_type, ts_start_iso):
-    """Stable identifier: sha256 of type + start timestamp."""
-    raw = f'{session_type}:{ts_start_iso}'
-    return hashlib.sha256(raw.encode()).hexdigest()[:16]
-
-
-# ---------------------------------------------------------------------------
 # Notes persistence
 # ---------------------------------------------------------------------------
-
-SESSION_NOTES_DDL = """
-CREATE TABLE IF NOT EXISTS session_notes (
-    session_id   TEXT PRIMARY KEY,
-    session_type TEXT NOT NULL,
-    note         TEXT DEFAULT '',
-    charge_type  TEXT DEFAULT '',
-    shore_power  INTEGER DEFAULT 0,
-    updated_at   TEXT
-);
-"""
-
-
-def _ensure_notes_table(conn):
-    conn.execute(SESSION_NOTES_DDL)
-    conn.commit()
-    _migrate_notes_table(conn)
-    _migrate_system_diagnostics_table(conn)
-
-
-def _migrate_notes_table(conn):
-    """Add columns introduced after the initial schema."""
-    cols = {row[1] for row in conn.execute("PRAGMA table_info(session_notes)")}
-    if 'charge_type' not in cols:
-        conn.execute("ALTER TABLE session_notes ADD COLUMN charge_type TEXT DEFAULT ''")
-    if 'shore_power' not in cols:
-        conn.execute("ALTER TABLE session_notes ADD COLUMN shore_power INTEGER DEFAULT 0")
-    if 'flags' not in cols:
-        conn.execute("ALTER TABLE session_notes ADD COLUMN flags TEXT DEFAULT ''")
-    conn.commit()
-
-
-def _migrate_system_diagnostics_table(conn):
-    """Create the system_diagnostics table if it does not exist."""
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS system_diagnostics (
-            diag_id      TEXT PRIMARY KEY,
-            diag_type    TEXT NOT NULL,
-            detected_at  TEXT,
-            period_start TEXT,
-            period_end   TEXT,
-            soc_drop     REAL,
-            hours        REAL,
-            details      TEXT
-        )
-    """)
-    conn.commit()
-
-
-def load_notes(db_path):
-    """Return {session_id: {'note', 'charge_type', 'shore_power', 'flags'}} for all stored notes."""
-    conn = sqlite3.connect(db_path)
-    _ensure_notes_table(conn)
-    rows = conn.execute(
-        'SELECT session_id, note, charge_type, shore_power, flags FROM session_notes'
-    ).fetchall()
-    conn.close()
-    return {
-        r[0]: {
-            'note': r[1] or '',
-            'charge_type': r[2] or '',
-            'shore_power': bool(r[3]),
-            'flags': r[4] or '',
-        }
-        for r in rows
-    }
-
-
-def load_shore_power_sessions(db_path):
-    """Return set of session_ids where shore_power = 1."""
-    conn = sqlite3.connect(db_path)
-    _ensure_notes_table(conn)
-    rows = conn.execute(
-        'SELECT session_id FROM session_notes WHERE shore_power = 1'
-    ).fetchall()
-    conn.close()
-    return {r[0] for r in rows}
-
-
-def load_diagnostics(db_path):
-    """Load persisted diagnostic state from the DB (fast path before first Refresh).
-
-    Returns {'session_flags': {sid: [flag_str, ...]}, 'system_diags': [row_dicts]}.
-    """
-    conn = sqlite3.connect(db_path)
-    _ensure_notes_table(conn)
-    flag_rows = conn.execute(
-        "SELECT session_id, flags FROM session_notes WHERE flags IS NOT NULL AND flags != ''"
-    ).fetchall()
-    diag_rows = conn.execute(
-        'SELECT diag_id, diag_type, period_start, period_end, soc_drop, hours FROM system_diagnostics'
-    ).fetchall()
-    conn.close()
-
-    session_flags = {}
-    for sid, flags_str in flag_rows:
-        session_flags[sid] = [f.strip() for f in flags_str.split(',') if f.strip()]
-
-    system_diags = [
-        {'diag_id': r[0], 'diag_type': r[1], 'period_start': r[2],
-         'period_end': r[3], 'soc_drop': r[4], 'hours': r[5]}
-        for r in diag_rows
-    ]
-
-    return {'session_flags': session_flags, 'system_diags': system_diags}
-
-
-def _save_session_flags(conn, sid, flags_str):
-    """Update only the flags column for a session — does not touch note/charge_type/shore_power."""
-    conn.execute(
-        "INSERT OR IGNORE INTO session_notes (session_id, session_type, flags) VALUES (?, 'charge', '')",
-        (sid,),
-    )
-    conn.execute(
-        "UPDATE session_notes SET flags=?, updated_at=? WHERE session_id=?",
-        (flags_str, datetime.now(timezone.utc).isoformat(), sid),
-    )
-
 
 def compute_and_save_diagnostics(db_path, all_data, cfg):
     """Run all diagnostic checks and persist results to the DB.
@@ -213,7 +92,6 @@ def compute_and_save_diagnostics(db_path, all_data, cfg):
 
     # Persist session flags
     conn = sqlite3.connect(db_path)
-    _ensure_notes_table(conn)
     for sid, flags in sid_flags.items():
         _save_session_flags(conn, sid, ','.join(sorted(flags)))
     # Clear flags for sessions no longer flagged
@@ -239,50 +117,6 @@ def compute_and_save_diagnostics(db_path, all_data, cfg):
     conn.commit()
     conn.close()
     return results
-
-
-def save_note(db_path, sid, session_type, note, charge_type=None, shore_power=None):
-    conn = sqlite3.connect(db_path)
-    _ensure_notes_table(conn)
-    # Build update dynamically based on which optional fields are provided
-    if charge_type is None and shore_power is None:
-        conn.execute(
-            """INSERT INTO session_notes (session_id, session_type, note, updated_at)
-               VALUES (?, ?, ?, ?)
-               ON CONFLICT(session_id) DO UPDATE SET
-                 note=excluded.note, updated_at=excluded.updated_at""",
-            (sid, session_type, note, datetime.now(timezone.utc).isoformat()),
-        )
-    elif charge_type is not None and shore_power is None:
-        conn.execute(
-            """INSERT INTO session_notes (session_id, session_type, note, charge_type, updated_at)
-               VALUES (?, ?, ?, ?, ?)
-               ON CONFLICT(session_id) DO UPDATE SET
-                 note=excluded.note, charge_type=excluded.charge_type,
-                 updated_at=excluded.updated_at""",
-            (sid, session_type, note, charge_type, datetime.now(timezone.utc).isoformat()),
-        )
-    elif charge_type is None and shore_power is not None:
-        conn.execute(
-            """INSERT INTO session_notes (session_id, session_type, note, shore_power, updated_at)
-               VALUES (?, ?, ?, ?, ?)
-               ON CONFLICT(session_id) DO UPDATE SET
-                 note=excluded.note, shore_power=excluded.shore_power,
-                 updated_at=excluded.updated_at""",
-            (sid, session_type, note, int(shore_power), datetime.now(timezone.utc).isoformat()),
-        )
-    else:
-        conn.execute(
-            """INSERT INTO session_notes (session_id, session_type, note, charge_type, shore_power, updated_at)
-               VALUES (?, ?, ?, ?, ?, ?)
-               ON CONFLICT(session_id) DO UPDATE SET
-                 note=excluded.note, charge_type=excluded.charge_type,
-                 shore_power=excluded.shore_power, updated_at=excluded.updated_at""",
-            (sid, session_type, note, charge_type, int(shore_power),
-             datetime.now(timezone.utc).isoformat()),
-        )
-    conn.commit()
-    conn.close()
 
 
 # ---------------------------------------------------------------------------
@@ -521,7 +355,7 @@ def _discharge_table(discharge_stats, notes, system_diags=None, show_all=False):
     for d in system_diags:
         if d.get('diag_type') == 'parasitic_drain' and d.get('period_end'):
             try:
-                from victron.report import parse_ts as _parse_ts
+                from boondockers.engine import parse_ts as _parse_ts
                 drain_ends.append(_parse_ts(d['period_end']))
             except Exception:
                 pass
@@ -708,7 +542,6 @@ def _summary_cards(summary):
     eff_rate = summary.get('effective_charge_rate', 0)
     maint_hours = summary.get('daily_maintenance_hours', 0)
     remaining_ah = summary.get('remaining_ah')
-    capacity_ah = summary.get('capacity_ah')
     cur_soc = summary.get('current_soc')
     tgt_soc = summary.get('target_soc', 95.0)
     hours_to_tgt = summary.get('hours_to_target')
@@ -792,19 +625,19 @@ def _summary_cards(summary):
 # ---------------------------------------------------------------------------
 
 def build_app(cfg, time_window=None):
-    from victron.report import build_figure
+    db_path = cfg.get('logging', 'db_path', fallback='victron_data.db')
+    ensure_schema(db_path)
 
     app = dash.Dash(__name__, suppress_callback_exceptions=True)
-    app.title = 'Victron Dashboard'
+    app.title = 'Boondockers Dashboard'
 
     data = load_all_data(cfg, time_window)
-    db_path = cfg.get('logging', 'db_path', fallback='victron_data.db')
 
     def make_layout(data):
         if data is None:
             return html.Div([
                 html.H1('Battery Dashboard', style={'color': '#1a5276'}),
-                html.P('No readings found. Run victron/logger.py first to collect data.',
+                html.P('No readings found. Run boondockers/providers/victron_ble.py first to collect data.',
                        style={'color': '#999'}),
             ], style={'maxWidth': '1100px', 'margin': '40px auto', 'padding': '0 20px'})
 
@@ -1091,7 +924,7 @@ def build_app(cfg, time_window=None):
 def main():
     import textwrap
     parser = argparse.ArgumentParser(
-        description='Victron interactive dashboard',
+        description='Boondockers Helper interactive dashboard',
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=textwrap.dedent("""\
             Time window — controls which readings are loaded on every Refresh:
@@ -1151,7 +984,7 @@ def main():
         t = threading.Thread(target=start_server, daemon=True)
         t.start()
         import time; time.sleep(1)  # give Dash a moment to bind
-        webview.create_window('Victron Dashboard', f'http://localhost:{APP_PORT}',
+        webview.create_window('Boondockers Dashboard', f'http://localhost:{APP_PORT}',
                               width=1200, height=900)
         webview.start()
     elif args.open_browser:

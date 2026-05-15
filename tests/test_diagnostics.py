@@ -8,7 +8,7 @@ Tests for the diagnostics system:
 from datetime import datetime, timedelta, timezone
 
 from factories import make_reading
-from victron.report import (
+from boondockers.engine import (
     _detect_thermal_derating,
     charging_session_stats,
     compute_diagnostics,

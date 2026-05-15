@@ -6,7 +6,7 @@ charging_session_stats.
 from datetime import datetime, timedelta, timezone
 
 from tests.factories import make_reading
-from victron.report import _find_cc_cv_knee, charging_session_stats
+from boondockers.engine import _find_cc_cv_knee, charging_session_stats
 
 
 # ---------------------------------------------------------------------------

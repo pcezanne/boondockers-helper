@@ -438,7 +438,7 @@ def step_test_connection() -> tuple[bool, bool]:
     banner("Step 4 of 5 — Connection Test")
     print()
     print("Testing BLE connection (timeout: 35 seconds)…")
-    print(_c(DIM, f"Running: python3 victron/logger.py --once"))
+    print(_c(DIM, f"Running: python3 boondockers/providers/victron_ble.py --once"))
     print()
 
     reconfigured = False
@@ -472,7 +472,7 @@ def step_test_connection() -> tuple[bool, bool]:
                 sys.exit(0)
         else:
             warn("Connection test failed after 3 attempts.")
-            warn("Verify config.ini and retry: python3 victron/logger.py --once")
+            warn("Verify config.ini and retry: python3 boondockers/providers/victron_ble.py --once")
             return False, reconfigured
 
     return False, reconfigured
@@ -481,7 +481,7 @@ def step_test_connection() -> tuple[bool, bool]:
 def _run_once() -> subprocess.CompletedProcess:
     try:
         return subprocess.run(
-            [sys.executable, "victron/logger.py", "--once"],
+            [sys.executable, "boondockers/providers/victron_ble.py", "--once"],
             cwd=PROJECT_ROOT,
             capture_output=True,
             text=True,
@@ -635,7 +635,7 @@ def step_complete(*, config_written: bool, verified: bool, launchd_ok: bool) -> 
     print(_c(BOLD, "Next steps:"))
     print(f"  Dashboard:   ./start_dashboard.sh")
     print(f"  Check logs:  tail -f {LOG_PATH}")
-    print(f"  One-off test: python3 victron/logger.py --once")
+    print(f"  One-off test: python3 boondockers/providers/victron_ble.py --once")
     print(f"  Stop agent:  launchctl unload {PLIST_DEST}")
     print()
     print("Data appears in the dashboard after the first poll interval.")

@@ -80,11 +80,17 @@ parasitic_drain_min_hours = 4           ; idle period must be at least this long
 
 ```
 src/
-├── victron/                  ← Python package (source files)
+├── boondockers/              ← Python package (source files)
 │   ├── __init__.py
-│   ├── logger.py             ← BLE polling daemon
+│   ├── engine.py             ← pure computation: session detection, stats, diagnostics, chart helpers
+│   ├── db.py                 ← schema management (ensure_schema) + all SQLite I/O
 │   ├── report.py             ← build_figure() + generate_html() + CLI entry point
-│   └── app.py                ← Plotly Dash live dashboard
+│   ├── app.py                ← Plotly Dash live dashboard
+│   ├── assets/
+│   │   └── tooltip.css       ← CSS tooltips for Dash dashboard headers and ⚠ cells
+│   └── providers/
+│       ├── __init__.py
+│       └── victron_ble.py    ← Victron BMV-712 BLE polling daemon
 ├── tests/
 │   ├── conftest.py           ← synthetic data factories
 │   ├── test_timestamps.py
@@ -116,13 +122,13 @@ bash setup/setup.sh --skip-launchd  # config + connection test only
 bash setup/setup.sh --skip-config   # reinstall launchd agent only (existing config.ini kept)
 ```
 The wizard streams `victron-ble discover` output live, validates UUID + key, writes `config.ini`
-from the example template (preserving all comments), runs `logger.py --once` to verify the
+from the example template (preserving all comments), runs `victron_ble.py --once` to verify the
 BLE connection, then customizes and installs the launchd plist. Re-run-safe: if `config.ini`
 already exists, offers skip / reconfigure / quit.
 
 Running the HTML report (both forms work from `src/`):
-- `python3 victron/report.py`
-- `python3 -m victron.report`
+- `python3 boondockers/report.py`
+- `python3 -m boondockers.report`
 
 Running the live dashboard:
 - `./start_dashboard.sh`                              — opens browser tab at localhost:8050
@@ -138,7 +144,7 @@ Running the live dashboard:
 
 ```bash
 ./run_tests.sh                  # all tests, verbose
-./run_tests.sh --cov=victron    # with coverage
+./run_tests.sh --cov=boondockers    # with coverage
 ./run_tests.sh tests/test_sessions.py  # single file
 ```
 
@@ -146,7 +152,7 @@ Tests use synthetic in-memory data; no BLE device or database required.
 
 ## Dash Dashboard
 
-`victron/app.py` is a Plotly Dash live dashboard. It reuses all the same logic and
+`boondockers/app.py` is a Plotly Dash live dashboard. It reuses all the same logic and
 `build_figure()` from `report.py`. Key features:
 - Refresh button reloads all data from the database
 - Download Report button generates and serves a static HTML file (same as `report.py`)
@@ -159,9 +165,11 @@ Tests use synthetic in-memory data; no BLE device or database required.
 
 ## What's Built
 
-- `victron/logger.py` — BLE polling daemon → SQLite (`victron_data.db`; includes `session_notes` table)
-- `victron/app.py` — Plotly Dash live dashboard (browser or native window; Refresh updates all cards + chart + diagnostics; Download Report opens HTML in system browser; per-session notes; per-charging-session Type multi-select dropdown: Shore / Generator / Driving — persisted in `session_notes.charge_type`; **Diagnostics panel** between chart and session tables shows active anomaly alerts; inline ⚠ icons in both session tables; diagnostic flags persisted in `session_notes.flags` and `system_diagnostics` table so panel loads immediately on page open)
-- `victron/report.py` — `build_figure()` (shared with Dash app) + `generate_html()` + CLI; interactive Plotly HTML report with 5 subplots:
+- `boondockers/providers/victron_ble.py` — BLE polling daemon → SQLite (`victron_data.db`; includes `session_notes` table)
+- `boondockers/engine.py` — pure computation: session detection, stats, diagnostics, chart helpers (no I/O)
+- `boondockers/db.py` — schema management (`ensure_schema` with `PRAGMA user_version` migrations) + all SQLite I/O
+- `boondockers/app.py` — Plotly Dash live dashboard (browser or native window; Refresh updates all cards + chart + diagnostics; Download Report opens HTML in system browser; per-session notes; per-charging-session Type multi-select dropdown: Shore / Generator / Driving — persisted in `session_notes.charge_type`; **Diagnostics panel** between chart and session tables shows active anomaly alerts; inline ⚠ icons in both session tables; diagnostic flags persisted in `session_notes.flags` and `system_diagnostics` table so panel loads immediately on page open)
+- `boondockers/report.py` — `build_figure()` (shared with Dash app) + `generate_html()` + CLI; interactive Plotly HTML report with 5 subplots:
   - Each subplot has its own independent legend positioned next to it (Plotly named legends); SOC chart legend has shading key; charge rate chart legend has rolling avg line; V and A subplots have no legend (titles sufficient)
   - SOC over time with adaptive LTTB downsampling (3 age tiers: full res <6h, 5-min <24h, 15-min older) to keep HTML compact; session boundaries always pinned at full resolution; sessions with notes show the note as a hover tooltip over the shaded region (invisible filled rect trace; SOC line hover takes priority when on the line); default viewport = last 3 days (`window_days=3` param in `build_figure()`); rangeselector buttons (3d / 7d / 30d / All) above the SOC chart for quick navigation — note: `xaxis_rangeselector` targets only row 1; `update_xaxes(rangeselector=...)` would apply to all rows and break layout; all subplots scroll together (shared x-axis); ticks always 1-day spacing (Plotly auto-skips overlap when zoomed out)
   - SOC chart background shading: orange=discharge session, green=charging session, light grey=logger running but no session (brief transition, filtered short session, or neutral current), white=no data at all (logger off/asleep); grey spans computed from contiguous reading runs (gaps >10 min split spans)
@@ -178,9 +186,9 @@ Tests use synthetic in-memory data; no BLE device or database required.
   - Discharge Sessions table: Start/End (date+time), SOC start/end, Drop, Ah (from BMV Coulomb counter), Duration, %/day, Avg Power (Option C: consumed_ah ÷ hours × avg_voltage)
   - Charging Sessions table: Start/End, SOC start/end, Gain, Duration, %/hour, CC %/hr, Knee SOC, Avg A, Type (multi-select: Shore / Generator / Driving)
   - **Session filtering** (`filter_sessions()`): discharge sessions below `min_session_pct` (default 1.0%) SOC drop are dropped. Charging sessions below `min_session_pct` gain are also dropped, with one exception: `_keep_charge()` retains sessions that have `gain > 0` AND `soc_end >= 99.0%` — top-offs from near-full SOC have <1% headroom by definition, but "reached essentially full" is a meaningful event; BLE dropout can cut a session short before 100% is logged, so threshold is 99.0% not 99.5%. Rate card (`compute_summary`) uses a separate 5% gate to exclude top-off sessions from the measured charge rate.
-  - **Tooltips**: instant CSS tooltips via `data-tip` attribute in `victron/assets/tooltip.css` (Dash auto-serves from `assets/`); no browser delay vs `title=`; two rules: `thead th[data-tip]` (opens downward, 300px wide) for column headers, `span[data-tip]` (opens upward, 260px wide, anchored left:0 to avoid off-screen clipping) for ⚠ warning triangles; both use `width` not `max-width` (absolute pseudo-elements require explicit width, not max-width); column headers (CC %/hr, Knee SOC, %/hour) explain the metric on hover; ⚠ cells show full diagnostic description on hover; charge rate bars include CC phase explanation in the Plotly `hovertemplate` (SVG subplot titles cannot receive CSS hover)
+  - **Tooltips**: instant CSS tooltips via `data-tip` attribute in `boondockers/assets/tooltip.css` (Dash auto-serves from `assets/`); no browser delay vs `title=`; two rules: `thead th[data-tip]` (opens downward, 300px wide) for column headers, `span[data-tip]` (opens upward, 260px wide, anchored left:0 to avoid off-screen clipping) for ⚠ warning triangles; both use `width` not `max-width` (absolute pseudo-elements require explicit width, not max-width); column headers (CC %/hr, Knee SOC, %/hour) explain the metric on hover; ⚠ cells show full diagnostic description on hover; charge rate bars include CC phase explanation in the Plotly `hovertemplate` (SVG subplot titles cannot receive CSS hover)
   - CLI flags: `--week` (7d), `--2weeks` (14d), `--days N` (last N days), `--start YYYY-MM-DD [--end YYYY-MM-DD]` (explicit range), `--no-open`; chart viewport auto-scales to the selected window; reports saved in `reports/`
-- `setup/com.victron.logger.plist` — macOS launchd agent (script path: `victron/logger.py`)
+- `setup/com.victron.logger.plist` — macOS launchd agent (script path: `boondockers/providers/victron_ble.py`)
 - `setup/victron-logger.service` — Raspberry Pi systemd placeholder
 - `config.ini.example` — safe template (copy to `config.ini` and fill in credentials)
 
@@ -191,7 +199,7 @@ binaries (including the `claude` CLI at `/opt/homebrew/Caskroom/claude-code/*/cl
 cannot be added through the UI — clicking Open dismisses the dialog without adding the
 entry. Workaround via `tccutil` requires SIP to be disabled, which is not recommended.
 
-**Practical impact:** `victron/logger.py` works correctly when run from Terminal.app (which
+**Practical impact:** `boondockers/providers/victron_ble.py` works correctly when run from Terminal.app (which
 has Bluetooth permission). The launchd agent also works. Claude Code's own Bash tool cannot
 directly invoke `victron-ble` — test commands must be run manually in Terminal.
 

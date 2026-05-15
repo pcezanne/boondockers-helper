@@ -2,7 +2,7 @@ from datetime import datetime, timedelta, timezone
 
 from factories import discharge_session
 
-from victron.report import adaptive_downsample, lttb_downsample, rolling_avg
+from boondockers.engine import adaptive_downsample, lttb_downsample, rolling_avg
 
 
 # ---------------------------------------------------------------------------
@@ -114,7 +114,7 @@ def test_adaptive_boundary_timestamps_preserved():
     boundary_ts_set = {readings[0]['timestamp'], readings[-1]['timestamp']}
     ts, soc, _ = adaptive_downsample(readings, boundary_ts_set, _DEFAULT_CFG)
     # The boundary datetimes should appear in ts
-    from victron.report import parse_ts, to_local
+    from boondockers.engine import parse_ts, to_local
     b_start = to_local(parse_ts(readings[0]['timestamp']))
     b_end = to_local(parse_ts(readings[-1]['timestamp']))
     assert b_start in ts

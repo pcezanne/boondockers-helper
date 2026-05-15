@@ -26,7 +26,7 @@
     <key>ProgramArguments</key>
     <array>
         <string>/Library/Frameworks/Python.framework/Versions/3.13/bin/python3</string>
-        <string>victron/logger.py</string>
+        <string>boondockers/providers/victron_ble.py</string>
     </array>
 
     <!-- Edit this to the absolute path of your project directory -->

@@ -1,6 +1,6 @@
 from factories import charging_session, discharge_session, make_reading
 
-from victron.report import charging_session_stats, session_stats
+from boondockers.engine import charging_session_stats, session_stats
 
 
 def test_session_stats_pct_drop():

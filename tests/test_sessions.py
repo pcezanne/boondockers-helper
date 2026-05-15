@@ -1,6 +1,6 @@
 from factories import charging_session, discharge_session, make_reading
 
-from victron.report import detect_charging_sessions, detect_sessions
+from boondockers.engine import detect_charging_sessions, detect_sessions
 
 THRESHOLD = 2.0
 MAX_GAP = 4.0

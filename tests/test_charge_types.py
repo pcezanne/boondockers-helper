@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 import pytest
 
 from tests.factories import charging_session
-from victron.report import (
+from boondockers.engine import (
     CHARGE_TYPE_ORDER,
     _plan_charge_subplots,
     charging_session_stats,
@@ -145,67 +145,58 @@ def _make_db():
 
 
 def test_save_and_load_charge_type(tmp_path):
-    from victron.app import load_notes, save_note
-    db = tmp_path / 'test.db'
+    from boondockers.db import ensure_schema, load_notes, save_note
+    db = str(tmp_path / 'test.db')
+    ensure_schema(db)
     sid = 'abc123'
-    save_note(str(db), sid, 'charge', 'test note', charge_type='Generator,Driving')
-    notes = load_notes(str(db))
+    save_note(db, sid, 'charge', 'test note', charge_type='Generator,Driving')
+    notes = load_notes(db)
     assert notes[sid]['note'] == 'test note'
     assert notes[sid]['charge_type'] == 'Generator,Driving'
 
 
 def test_save_note_without_charge_type_preserves_existing(tmp_path):
-    from victron.app import load_notes, save_note
-    db = tmp_path / 'test.db'
+    from boondockers.db import ensure_schema, load_notes, save_note
+    db = str(tmp_path / 'test.db')
+    ensure_schema(db)
     sid = 'abc456'
-    save_note(str(db), sid, 'charge', '', charge_type='Shore')
-    save_note(str(db), sid, 'charge', 'updated note')
-    notes = load_notes(str(db))
+    save_note(db, sid, 'charge', '', charge_type='Shore')
+    save_note(db, sid, 'charge', 'updated note')
+    notes = load_notes(db)
     # Note should be updated; charge_type should still be present
     assert notes[sid]['note'] == 'updated note'
 
 
 def test_save_charge_type_empty_list(tmp_path):
-    from victron.app import load_notes, save_note
-    db = tmp_path / 'test.db'
+    from boondockers.db import ensure_schema, load_notes, save_note
+    db = str(tmp_path / 'test.db')
+    ensure_schema(db)
     sid = 'abc789'
-    save_note(str(db), sid, 'charge', '', charge_type='')
-    notes = load_notes(str(db))
+    save_note(db, sid, 'charge', '', charge_type='')
+    notes = load_notes(db)
     assert notes[sid]['charge_type'] == ''
 
 
 # ---------------------------------------------------------------------------
-# _migrate_notes_table
+# ensure_schema
 # ---------------------------------------------------------------------------
 
-def test_migrate_adds_column_to_old_schema(tmp_path):
-    from victron.app import _migrate_notes_table
-    db_path = tmp_path / 'old.db'
-    conn = sqlite3.connect(str(db_path))
-    # Old schema — no charge_type column
-    conn.execute("""
-        CREATE TABLE session_notes (
-            session_id   TEXT PRIMARY KEY,
-            session_type TEXT NOT NULL,
-            note         TEXT DEFAULT '',
-            updated_at   TEXT
-        )
-    """)
-    conn.execute("INSERT INTO session_notes VALUES ('s1', 'charge', 'hello', NULL)")
-    conn.commit()
-    _migrate_notes_table(conn)
-    cols = {row[1] for row in conn.execute("PRAGMA table_info(session_notes)")}
+def test_ensure_schema_creates_tables_on_fresh_db(tmp_path):
+    from boondockers.db import ensure_schema
+    db_path = str(tmp_path / 'fresh.db')
+    ensure_schema(db_path)
+    conn = sqlite3.connect(db_path)
+    cols = {row[1] for row in conn.execute('PRAGMA table_info(session_notes)')}
     assert 'charge_type' in cols
-    # Existing data preserved
-    row = conn.execute("SELECT note FROM session_notes WHERE session_id='s1'").fetchone()
-    assert row[0] == 'hello'
+    assert 'flags' in cols
     conn.close()
 
 
-def test_migrate_is_idempotent(tmp_path):
-    from victron.app import _migrate_notes_table
-    db_path = tmp_path / 'new.db'
-    conn = sqlite3.connect(str(db_path))
+def test_ensure_schema_adds_flags_to_old_schema(tmp_path):
+    """DB with session_notes missing flags column gets it added by ensure_schema."""
+    from boondockers.db import ensure_schema
+    db_path = str(tmp_path / 'old.db')
+    conn = sqlite3.connect(db_path)
     conn.execute("""
         CREATE TABLE session_notes (
             session_id   TEXT PRIMARY KEY,
@@ -215,11 +206,28 @@ def test_migrate_is_idempotent(tmp_path):
             updated_at   TEXT
         )
     """)
+    conn.execute("INSERT INTO session_notes VALUES ('s1', 'charge', 'hello', '', NULL)")
+    conn.execute('PRAGMA user_version = 1')
     conn.commit()
-    # Should not raise even though column already exists
-    _migrate_notes_table(conn)
-    cols = {row[1] for row in conn.execute("PRAGMA table_info(session_notes)")}
-    assert 'charge_type' in cols
+    conn.close()
+    ensure_schema(db_path)
+    conn = sqlite3.connect(db_path)
+    cols = {row[1] for row in conn.execute('PRAGMA table_info(session_notes)')}
+    assert 'flags' in cols
+    row = conn.execute("SELECT note FROM session_notes WHERE session_id='s1'").fetchone()
+    assert row[0] == 'hello'
+    conn.close()
+
+
+def test_ensure_schema_is_idempotent(tmp_path):
+    """Calling ensure_schema twice should not raise."""
+    from boondockers.db import ensure_schema
+    db_path = str(tmp_path / 'idempotent.db')
+    ensure_schema(db_path)
+    ensure_schema(db_path)  # second call must not raise
+    conn = sqlite3.connect(db_path)
+    cols = {row[1] for row in conn.execute('PRAGMA table_info(session_notes)')}
+    assert 'flags' in cols
     conn.close()
 
 
@@ -229,12 +237,13 @@ def test_migrate_is_idempotent(tmp_path):
 
 def test_shore_driving_conflict_removed_on_save(tmp_path):
     """Shore is stripped when saved alongside Driving."""
-    from victron.app import load_notes, save_note
-    db = tmp_path / 'test.db'
+    from boondockers.db import ensure_schema, load_notes, save_note
+    db = str(tmp_path / 'test.db')
+    ensure_schema(db)
     sid = 'conflict1'
     # Simulate bad state: Shore + Driving (shouldn't reach DB, but test the guard)
-    save_note(str(db), sid, 'charge', '', charge_type='Shore,Driving')
-    notes = load_notes(str(db))
+    save_note(db, sid, 'charge', '', charge_type='Shore,Driving')
+    notes = load_notes(db)
     # What we care about: the save_charge_types callback sanitizes before persisting.
     # save_note itself stores whatever it's given; sanitization is in save_charge_types.
     # This test verifies the sanitization logic used there directly.

@@ -2,11 +2,11 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2026 Paul Cezanne
 """
-logger.py — Poll Victron BMV-712 Smart via BLE and log readings to SQLite.
+victron_ble.py — Poll Victron BMV-712 Smart via BLE and log readings to SQLite.
 
 Usage:
-    python3 logger.py           # runs continuously (Ctrl-C to stop)
-    python3 logger.py --once    # single poll then exit (for testing)
+    python3 providers/victron_ble.py           # runs continuously (Ctrl-C to stop)
+    python3 providers/victron_ble.py --once    # single poll then exit (for testing)
 """
 
 import argparse
@@ -20,6 +20,8 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
+from boondockers.db import ensure_schema
+
 # Derive victron-ble path from the running Python interpreter so launchd
 # (which has a minimal PATH) can find it without any PATH configuration.
 VICTRON_BLE = str(Path(sys.executable).parent / 'victron-ble')
@@ -31,30 +33,7 @@ logging.basicConfig(
 )
 log = logging.getLogger(__name__)
 
-CONFIG_PATH = Path(__file__).parent.parent / 'config.ini'
-
-SCHEMA = """
-CREATE TABLE IF NOT EXISTS readings (
-    id             INTEGER PRIMARY KEY AUTOINCREMENT,
-    timestamp      TEXT    NOT NULL,
-    voltage        REAL,
-    current        REAL,
-    soc            REAL,
-    consumed_ah    REAL,
-    remaining_mins INTEGER,
-    alarm          TEXT,
-    power_watts    REAL
-);
-
-CREATE TABLE IF NOT EXISTS session_notes (
-    session_id   TEXT PRIMARY KEY,
-    session_type TEXT NOT NULL,
-    note         TEXT DEFAULT '',
-    charge_type  TEXT DEFAULT '',
-    shore_power  INTEGER DEFAULT 0,
-    updated_at   TEXT
-);
-"""
+CONFIG_PATH = Path(__file__).parent.parent.parent / 'config.ini'
 
 
 def load_config():
@@ -63,12 +42,6 @@ def load_config():
         raise FileNotFoundError(f'Config file not found: {CONFIG_PATH}')
     cfg.read(CONFIG_PATH)
     return cfg
-
-
-def init_db(db_path):
-    conn = sqlite3.connect(db_path)
-    conn.executescript(SCHEMA)
-    return conn
 
 
 def read_device(uuid, key, timeout=30):
@@ -145,7 +118,8 @@ def main():
     poll_minutes = cfg.getfloat('logging', 'poll_interval_minutes', fallback=15)
     db_path = cfg.get('logging', 'db_path', fallback='victron_data.db')
 
-    conn = init_db(db_path)
+    ensure_schema(db_path)
+    conn = sqlite3.connect(db_path)
     log.info('Logging to %s  poll every %g min', db_path, poll_minutes)
 
     try:
