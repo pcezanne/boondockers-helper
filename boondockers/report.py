@@ -616,6 +616,26 @@ def _diagnostics_panel_html(diagnostics):
     return f'<div class="diag-panel">{header}{cards}</div>\n'
 
 
+def _soc_bar_html(soc_pct, remaining_ah=None):
+    """Render the full-width tri-color SOC status bar as an HTML string."""
+    if soc_pct is None:
+        return ''
+    color = '#27ae60' if soc_pct > 60 else ('#f39c12' if soc_pct > 30 else '#e74c3c')
+    fill_pct = f'{min(soc_pct, 100):.1f}%'
+    ah_part = f'<span class="soc-bar-ah">{remaining_ah:.0f} Ah</span>' if remaining_ah is not None else ''
+    border_left = f'border-left: 5px solid {color};'
+    return (
+        f'<div class="soc-bar-wrap" style="{border_left}">'
+        f'<div class="soc-bar-label">Current Charge</div>'
+        f'<span class="soc-bar-number" style="color:{color}">{soc_pct:.1f}%</span>'
+        f'{ah_part}'
+        f'<div class="soc-bar-track">'
+        f'<div class="soc-bar-fill" style="width:{fill_pct};background:{color}"></div>'
+        f'</div>'
+        f'</div>\n'
+    )
+
+
 def generate_html(readings, discharge_sessions, charging_sessions,
                   discharge_stats, charging_stats, summary, output_path,
                   time_format='12h', downsample_cfg=None, charge_type_map=None,
@@ -708,18 +728,6 @@ def generate_html(readings, discharge_sessions, charging_sessions,
     n_dis         = summary.get('total_discharge_sessions', 0)
     n_chg         = summary.get('total_charging_sessions', 0)
     generated     = datetime.now().strftime('%Y-%m-%d %H:%M')
-
-    if remaining_ah is not None:
-        remaining_ah_card = (
-            f'<div class="card" data-tip="Amp-hours of usable charge remaining right now,'
-            f' calculated as current SOC &times; battery capacity ({capacity_ah:.0f} Ah).'
-            f' A concrete measure of how much energy is left in the bank.">'
-            f'\n    <div class="value">{remaining_ah:.0f} Ah</div>'
-            f'\n    <div class="label">Remaining in bank</div>'
-            f'\n  </div>'
-        )
-    else:
-        remaining_ah_card = ''
 
     if hours_to_tgt is not None and cur_soc is not None:
         if cur_soc >= tgt_soc:
@@ -842,6 +850,30 @@ def generate_html(readings, discharge_sessions, charging_sessions,
     font-size: 0.88em; line-height: 1.5;
   }}
   .diag-card details summary {{ cursor: pointer; }}
+  .soc-bar-wrap {{
+    border-top: 1px solid #e0e4ea; border-right: 1px solid #e0e4ea;
+    border-bottom: 1px solid #e0e4ea;
+    border-radius: 10px; padding: 16px 24px;
+    margin-bottom: 16px; background: #fafafa;
+  }}
+  .soc-bar-number {{ font-size: 2.4em; font-weight: 700; }}
+  .soc-bar-ah {{ font-size: 1.1em; color: #555; margin-left: 12px; }}
+  .soc-bar-track {{
+    position: relative; width: 100%; height: 16px; border-radius: 8px;
+    overflow: hidden; margin-top: 10px;
+    background: linear-gradient(to right,
+      rgba(231,76,60,0.20) 0% 30%,
+      rgba(243,156,18,0.20) 30% 60%,
+      rgba(39,174,96,0.20) 60% 100%);
+  }}
+  .soc-bar-fill {{
+    position: absolute; left: 0; top: 0; bottom: 0;
+    border-radius: 8px; opacity: 0.75;
+  }}
+  .soc-bar-label {{
+    font-size: 0.75em; font-weight: 600; text-transform: uppercase;
+    letter-spacing: 0.08em; color: #888; margin-bottom: 6px;
+  }}
 </style>
 </head>
 <body>
@@ -851,6 +883,8 @@ def generate_html(readings, discharge_sessions, charging_sessions,
   Generated {generated} &middot; {len(readings):,} total readings &middot;
   {n_dis} discharge sessions &middot; {n_chg} charging sessions
 </p>
+
+{_soc_bar_html(cur_soc, remaining_ah)}
 
 <div class="group-label">Usage</div>
 <div class="summary">
@@ -880,7 +914,6 @@ def generate_html(readings, discharge_sessions, charging_sessions,
     <div class="value">{days_rem_7d_str}</div>
     <div class="label">At 7-day avg</div>
   </div>
-  {remaining_ah_card}
 </div>
 
 <div class="group-label">Full Battery Would Last</div>

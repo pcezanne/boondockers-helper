@@ -530,6 +530,59 @@ def _charging_table(charging_stats, notes, show_all=False):
                       style={'borderCollapse': 'collapse', 'width': '100%', 'fontSize': '0.88em'})
 
 
+def _soc_status_bar(soc_pct, remaining_ah=None):
+    """Full-width SOC status bar with tri-color progress track."""
+    if soc_pct is None:
+        return html.Div()
+    color = '#27ae60' if soc_pct > 60 else ('#f39c12' if soc_pct > 30 else '#e74c3c')
+    ah_text = f' / {remaining_ah:.0f} Ah' if remaining_ah is not None else ''
+    fill_pct = f'{min(soc_pct, 100):.1f}%'
+    return html.Div([
+        html.Div('Current Charge', style={
+            'fontSize': '0.75em', 'fontWeight': '600', 'textTransform': 'uppercase',
+            'letterSpacing': '0.08em', 'color': '#888', 'marginBottom': '6px',
+        }),
+        html.Div([
+            html.Span(f'{soc_pct:.1f}%', style={
+                'fontSize': '2.4em', 'fontWeight': '700', 'color': color,
+            }),
+            html.Span(ah_text, style={
+                'fontSize': '1.1em', 'color': '#555', 'marginLeft': '12px',
+            }),
+        ], style={'marginBottom': '10px'}),
+        # Tri-zone track: red 0–30 %, amber 30–60 %, green 60–100 %
+        # Solid colored fill overlaid on the zone gradient.
+        html.Div(
+            html.Div(style={
+                'position': 'absolute', 'left': '0', 'top': '0', 'bottom': '0',
+                'width': fill_pct,
+                'background': color,
+                'borderRadius': '8px',
+                'opacity': '0.75',
+            }),
+            style={
+                'position': 'relative', 'width': '100%', 'height': '16px',
+                'borderRadius': '8px', 'overflow': 'hidden',
+                'background': (
+                    'linear-gradient(to right,'
+                    ' rgba(231,76,60,0.20) 0% 30%,'
+                    ' rgba(243,156,18,0.20) 30% 60%,'
+                    ' rgba(39,174,96,0.20) 60% 100%)'
+                ),
+            },
+        ),
+    ], style={
+        'borderTop': '1px solid #e0e4ea',
+        'borderRight': '1px solid #e0e4ea',
+        'borderBottom': '1px solid #e0e4ea',
+        'borderLeft': f'5px solid {color}',
+        'borderRadius': '10px',
+        'padding': '16px 24px',
+        'marginBottom': '16px',
+        'background': '#fafafa',
+    })
+
+
 def _summary_cards(summary):
     def fmt_days(d):
         if d is None:
@@ -587,12 +640,9 @@ def _summary_cards(summary):
             children.append(html.Div(sub, style=sub_style))
         return html.Div(children, style=card_style)
 
-    remaining_ah_card = (
-        card(f'{remaining_ah:.0f} Ah', 'Remaining in bank')
-        if remaining_ah is not None else html.Div()
-    )
-
     return html.Div([
+        _soc_status_bar(cur_soc, remaining_ah),
+
         html.Div('Usage', style=grp_style),
         html.Div([
             card(f'{weekly:.1f}%', '7-day avg / day', f'{weekly_ah:.1f} Ah/day'),
@@ -604,7 +654,6 @@ def _summary_cards(summary):
         html.Div([
             card(fmt_days(summary.get('days_remaining_24h')), 'At 24h rate'),
             card(fmt_days(summary.get('days_remaining_7d')), 'At 7-day avg'),
-            remaining_ah_card,
         ], style=row_style),
 
         html.Div('Full Battery Would Last', style=grp_style),

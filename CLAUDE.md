@@ -159,6 +159,7 @@ Tests use synthetic in-memory data; no BLE device or database required.
 - Per-session Notes column (discharge + charging tables) — persisted in `session_notes` SQLite table (`note` column)
 - Per-charging-session Type multi-select — persisted in `session_notes.charge_type` (comma-separated: `"Generator,Driving"`); existing DBs auto-migrated via `ALTER TABLE` on first run
 - Per-discharge-session Shore Power checkbox — persisted in `session_notes.shore_power` (INTEGER 0/1); when checked, the session is excluded from all summary cards and daily usage bars; existing DBs auto-migrated via `ALTER TABLE` on first run
+- **SOC status bar** between the action buttons and the summary cards: full-width bar showing current SOC % and Ah remaining; tri-color progress track (red 0–30%, amber 30–60%, green 60–100%); border-left and number color change with zone; rendered by `_soc_status_bar()` in `app.py` / `_soc_bar_html()` in `report.py`; "Remaining in bank" Ah card removed (Ah now shown in the status bar instead)
 - Summary cards exclude Shore/Driving charging sessions via `charge_type_map` and exclude explicitly-marked Shore Power discharge sessions via `shore_power_sids`; discharge exclusion is user-controlled only (no inference from preceding charge type)
 - `--native` flag wraps the Dash server in a pywebview native macOS window
 - Future: PyInstaller packaging → `.app` (macOS) and `.exe` (Windows)
