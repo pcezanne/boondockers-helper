@@ -157,7 +157,9 @@ def load_all_data(cfg, time_window=None):
             since = time_window['since_fixed']
         until = time_window.get('until_fixed')
 
-    readings = load_readings(db_path, since=since, until=until)
+    # Always load all readings for accurate summary stats.
+    # The time window controls the chart viewport only (via window_days / build_figure).
+    readings = load_readings(db_path)
     if not readings:
         return None
 
@@ -542,6 +544,7 @@ def _summary_cards(summary):
     eff_rate = summary.get('effective_charge_rate', 0)
     maint_hours = summary.get('daily_maintenance_hours', 0)
     remaining_ah = summary.get('remaining_ah')
+    capacity_ah = summary.get('capacity_ah')
     cur_soc = summary.get('current_soc')
     tgt_soc = summary.get('target_soc', 95.0)
     hours_to_tgt = summary.get('hours_to_target')
@@ -612,7 +615,9 @@ def _summary_cards(summary):
 
         html.Div('Charging', style=grp_style),
         html.Div([
-            card(f'{eff_rate:.1f}%/h', 'Charge rate', green=True),
+            card(f'{eff_rate:.1f}%/h', 'Charge rate',
+                 sub=f'{eff_rate / 100 * capacity_ah:.0f} Ah/h' if capacity_ah else None,
+                 green=True),
             card(f'{maint_hours:.1f}h', 'Daily maintenance'),
             card(to_target_display, to_target_label, green=True),
             card(to_100_display, to_100_label, green=True),
@@ -654,6 +659,7 @@ def build_app(cfg, time_window=None):
             charge_type_map=data.get('charge_type_map'),
             note_map=note_map or None,
             window_days=data.get('window_days', 3),
+            capacity_ah=data.get('capacity_ah'),
         )
 
         generated = datetime.now().strftime('%Y-%m-%d %H:%M')
@@ -762,6 +768,7 @@ def build_app(cfg, time_window=None):
             charge_type_map=fresh.get('charge_type_map'),
             note_map=note_map or None,
             window_days=fresh.get('window_days', 3),
+            capacity_ah=fresh.get('capacity_ah'),
         )
         system_diags = diagnostics.get('parasitic_drain', [])
         return (
@@ -806,6 +813,7 @@ def build_app(cfg, time_window=None):
             charge_type_map=fresh.get('charge_type_map'),
             note_map=note_map or None,
             window_days=fresh.get('window_days', 3),
+            capacity_ah=fresh.get('capacity_ah'),
         )
         return {'loaded': True}, fig
 
@@ -880,6 +888,7 @@ def build_app(cfg, time_window=None):
             charge_type_map=fresh.get('charge_type_map'),
             note_map=note_map or None,
             window_days=fresh.get('window_days', 3),
+            capacity_ah=fresh.get('capacity_ah'),
         )
         return fig, _summary_cards(fresh['summary'])
 

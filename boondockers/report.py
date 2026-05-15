@@ -77,7 +77,7 @@ def load_config():
 def build_figure(readings, discharge_sessions, charging_sessions,
                  discharge_stats, charging_stats, summary,
                  time_format='12h', downsample_cfg=None, charge_type_map=None,
-                 note_map=None, window_days=3):
+                 note_map=None, window_days=3, capacity_ah=None):
     """Build and return the Plotly fig object. No HTML output."""
     import plotly.graph_objects as go
     from plotly.subplots import make_subplots
@@ -147,13 +147,25 @@ def build_figure(readings, discharge_sessions, charging_sessions,
     soc_legend_y    = fig.layout.yaxis.domain[1]   # top of row 1
     charge_legend_y = fig.layout.yaxis3.domain[1]  # top of row 3 (first charge row)
 
-    fig.add_trace(go.Scatter(
-        x=timestamps, y=soc_values,
-        mode='lines', name='State of Charge',
-        line=dict(color='steelblue', width=2),
-        showlegend=True, legend='legend',
-        hovertemplate=f'<b>%{{y:.1f}}% SOC</b><br>%{{x|{tick_fmt}}}<extra></extra>',
-    ), row=1, col=1)
+    if capacity_ah:
+        _soc_y = [v * capacity_ah / 100.0 for v in soc_values]
+        _soc_hover = f'<b>%{{customdata:.1f}}% / %{{y:.0f}} Ah</b><br>%{{x|{tick_fmt}}}<extra></extra>'
+        fig.add_trace(go.Scatter(
+            x=timestamps, y=_soc_y,
+            mode='lines', name='State of Charge',
+            line=dict(color='steelblue', width=2),
+            showlegend=True, legend='legend',
+            customdata=soc_values,
+            hovertemplate=_soc_hover,
+        ), row=1, col=1)
+    else:
+        fig.add_trace(go.Scatter(
+            x=timestamps, y=soc_values,
+            mode='lines', name='State of Charge',
+            line=dict(color='steelblue', width=2),
+            showlegend=True, legend='legend',
+            hovertemplate=f'<b>%{{y:.1f}}% SOC</b><br>%{{x|{tick_fmt}}}<extra></extra>',
+        ), row=1, col=1)
 
     # Midnight lines
     for midnight in midnights_in_range(timestamps):
@@ -391,7 +403,7 @@ def build_figure(readings, discharge_sessions, charging_sessions,
                 for l in lines
             )
 
-        _NOTE_Y = 3  # fixed SOC % — near bottom of axis, clear of SOC/V/A traces
+        _NOTE_Y = (3.0 * capacity_ah / 100.0) if capacity_ah else 3  # near bottom of axis, clear of SOC/V/A traces
 
         for sessions_list, stype, color in [
             (discharge_sessions, 'discharge', 'rgba(230, 120, 0, 0.85)'),
@@ -447,7 +459,10 @@ def build_figure(readings, discharge_sessions, charging_sessions,
             ),
         },
     )
-    fig.update_yaxes(title_text='SOC %', range=[0, 105], row=1, col=1)
+    if capacity_ah:
+        fig.update_yaxes(title_text='Ah', range=[0, capacity_ah * 1.05], row=1, col=1)
+    else:
+        fig.update_yaxes(title_text='SOC %', range=[0, 105], row=1, col=1)
     fig.update_yaxes(title_text='%/day', row=2, col=1)
     for i in range(n_charge_rows):
         fig.update_yaxes(title_text='%/hour', row=3 + i, col=1)
@@ -611,7 +626,7 @@ def generate_html(readings, discharge_sessions, charging_sessions,
                        discharge_stats, charging_stats, summary,
                        time_format=time_format, downsample_cfg=downsample_cfg,
                        charge_type_map=charge_type_map, note_map=note_map,
-                       window_days=window_days)
+                       window_days=window_days, capacity_ah=summary.get('capacity_ah'))
 
     chart_html = pio.to_html(fig, full_html=False, include_plotlyjs='cdn')
 
@@ -885,6 +900,7 @@ def generate_html(readings, discharge_sessions, charging_sessions,
   <div class="card green" data-tip="CC phase charge rate from your most recent generator or shore power session: SOC gain from session start to the CC&rarr;CV knee &divide; CC hours. Strips the CV tail so shore and generator sessions are comparable. Updates after every session. Falls back to config (charge_rate_pct_per_hour) until data is available.">
     <div class="value">{eff_rate:.1f}%/h</div>
     <div class="label">Charge rate</div>
+    {f'<div class="sublabel">{eff_rate / 100 * capacity_ah:.0f} Ah/h</div>' if capacity_ah else ''}
   </div>
   <div class="card" data-tip="Generator run time needed to replace one average day of usage. Calculated as running avg %/day &divide; charge rate. This is your steady-state daily generator budget — it does not account for any existing SOC deficit.">
     <div class="value">{maint_hours:.1f}h</div>
@@ -1037,7 +1053,9 @@ def main():
         span = (until or datetime.now(timezone.utc)) - since
         window_days = max(1, int(span.total_seconds() / 86400) + 1)
 
-    readings = load_readings(db_path, since=since, until=until)
+    # Always load all readings for accurate summary stats.
+    # The time window controls the chart viewport only (via window_days / build_figure).
+    readings = load_readings(db_path)
     if not readings:
         print('No readings found. Run providers/victron_ble.py first to collect data.')
         return

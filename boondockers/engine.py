@@ -487,18 +487,26 @@ def compute_summary(discharge_sessions, discharge_stats, charging_stats,
         # Exclude today (partial day) from averages — only complete calendar days count
         complete_rates = [(d, r, ah, h) for d, r, ah, h in daily_rates if d != today_str]
 
-        # Both running and 7-day averages are day-based (unweighted average of per-day
-        # rates) so they are methodologically consistent — only the time window differs.
-        all_day_rates = [r for _, r, _, _ in complete_rates]
-        running_avg = sum(all_day_rates) / len(all_day_rates) if all_day_rates else 0
+        # Hour-weighted averages: weight each slice by its discharge hours so a brief
+        # 2-hour stop doesn't carry equal weight to a full boondocking day.
+        def _hw_rate(slices):
+            total_h = sum(h for _, _, _, h in slices)
+            if not total_h:
+                return 0
+            return sum(r * h / 24 for _, r, _, h in slices) / total_h * 24
 
-        last7 = [r for _, r, _, _ in complete_rates[-7:]]
-        weekly_avg = sum(last7) / len(last7) if last7 else 0
+        def _hw_ah(slices):
+            total_h = sum(h for _, _, _, h in slices)
+            if not total_h:
+                return 0
+            return sum(ah for _, _, ah, _ in slices) / total_h * 24
 
-        all_ahs = [ah for _, _, ah, _ in complete_rates]
-        last7_ahs = [ah for _, _, ah, _ in complete_rates[-7:]]
-        avg_ah_per_day = sum(all_ahs) / len(all_ahs) if all_ahs else 0
-        weekly_avg_ah = sum(last7_ahs) / len(last7_ahs) if last7_ahs else 0
+        running_avg    = _hw_rate(complete_rates)
+        avg_ah_per_day = _hw_ah(complete_rates)
+
+        last7_slices  = complete_rates[-7:]
+        weekly_avg    = _hw_rate(last7_slices)
+        weekly_avg_ah = _hw_ah(last7_slices)
 
         # Implied watts from SOC-derived rate × capacity × avg voltage
         volt_list = [s['avg_voltage'] for s in summary_discharge_stats if s.get('avg_voltage')]
