@@ -70,6 +70,9 @@ def ensure_schema(db_path):
     Safe to call on both fresh and existing databases.
     """
     conn = sqlite3.connect(db_path)
+    # WAL mode allows concurrent readers while a writer holds a lock.
+    # This is a database-level setting that persists after the connection closes.
+    conn.execute('PRAGMA journal_mode = WAL')
     version = conn.execute('PRAGMA user_version').fetchone()[0]
 
     if version < 1:
