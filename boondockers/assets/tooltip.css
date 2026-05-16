@@ -1,6 +1,22 @@
 /* Instant CSS tooltips via data-tip attribute.
    Applied to table headers and warning cells in the Dash dashboard. */
 
+/* Animated spinner used inside action buttons (Refresh, Download Report) */
+@keyframes btn-spin {
+  to { transform: rotate(360deg); }
+}
+.btn-spinner {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border: 2px solid rgba(255, 255, 255, 0.35);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: btn-spin 0.7s linear infinite;
+  margin-right: 7px;
+  vertical-align: middle;
+}
+
 /* Table header tooltips (opens downward) */
 thead th[data-tip] {
   position: relative;

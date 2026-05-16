@@ -790,14 +790,20 @@ def build_app(cfg, time_window=None):
     # Clientside callbacks fire the instant the button is clicked (no server round trip),
     # immediately changing the label to a spinner.  The server callbacks restore the label
     # when they finish.
+    _spinner = (
+        "{"
+        "type:'Span',namespace:'dash_html_components',"
+        "props:{className:'btn-spinner',children:[]}"
+        "}"
+    )
     app.clientside_callback(
-        "function(n) { return '\u27f3 Refreshing\u2026'; }",
+        f"function(n) {{ return [{_spinner}, ' Refreshing\u2026']; }}",
         Output('refresh-btn', 'children'),
         Input('refresh-btn', 'n_clicks'),
         prevent_initial_call=True,
     )
     app.clientside_callback(
-        "function(n) { return '\u27f3 Generating\u2026'; }",
+        f"function(n) {{ return [{_spinner}, ' Generating\u2026']; }}",
         Output('download-btn', 'children'),
         Input('download-btn', 'n_clicks'),
         prevent_initial_call=True,
