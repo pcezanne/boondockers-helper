@@ -203,40 +203,79 @@ def test_derating_marginal_drop_not_flagged():
     assert is_derating is False
 
 
-def test_derating_flagged_with_eventual_cc_cv():
-    """Session with sustained current decline (drop_idx >> window_idx) must be flagged
-    even when the session eventually completes with a CC→CV knee.
+def test_derating_not_flagged_long_complete_charge():
+    """Long session (3+ hours) with full CC then CV taper must NOT be flagged.
 
-    This reproduces the May 14 scenario: bay doors closed, current declines from the
-    first reading and crosses the drop threshold well after the 30-minute window.
-    The session eventually reaches the absorption setpoint (CC→CV knee detected), but
-    because the drop happened *after* the window it is thermal derating, not settling.
+    Reproduces the May 16 false positive: peak ~92 A in the first 30 min,
+    then stable CC at ~89 A, then a long CV taper down to ~10 A.  The old
+    algorithm measured plateau from the second half (deeply in CV phase),
+    making the drop look huge.  The fixed algorithm measures plateau from the
+    settled CC window (minutes 30-45) and sees only a ~3% inrush difference.
     """
-    # Build a 150-reading session at 1-min intervals (150 min total).
-    # window_idx ≈ 30 (30 min / 1 min).
-    # Current declines gradually from reading 0; it crosses 85% of peak (drop_thr)
-    # around reading 57 — well past window_idx=30.
-    # After reading 117 the current tapers sharply to simulate CC→CV, so
-    # _find_cc_cv_knee will detect a knee.
+    n = 195          # ~3h15m at 1-min intervals
+    peak_amps = 92.3
+    cc_amps = 89.0   # stable CC current after inrush
+    cv_end_amps = 10.6
+    cc_cv_idx = 65   # CC→CV transition at reading 65 (~min 65, SOC ~86%)
+
+    readings = []
+    t = _T0
+    for i in range(n):
+        frac = i / max(n - 1, 1)
+        soc = 81.4 + (100.0 - 81.4) * frac
+        if i == 0:
+            current = peak_amps          # inrush spike
+        elif i < cc_cv_idx:
+            current = cc_amps            # stable CC phase
+        else:
+            cv_frac = (i - cc_cv_idx) / max(n - 1 - cc_cv_idx, 1)
+            current = cc_amps - (cc_amps - cv_end_amps) * cv_frac
+        voltage = 13.38 + (13.99 - 13.38) * frac
+        readings.append(make_reading(t, soc=round(soc, 2),
+                                     current=round(current, 1),
+                                     voltage=round(voltage, 3)))
+        t += timedelta(minutes=1)
+
+    is_derating, peak, plateau = _detect_thermal_derating(readings)
+    assert is_derating is False, (
+        f"Long complete CC→CV charge incorrectly flagged as derating; "
+        f"peak={peak}, plateau={plateau}"
+    )
+
+
+def test_derating_flagged_with_eventual_cc_cv():
+    """Thermal derating that kicks in after the settling window is still flagged,
+    even when the session completes normally with a CC→CV taper.
+
+    Scenario: charger runs stable CC at ~90 A for the first ~31 min (normal),
+    then thermal protection reduces current to ~60 A over readings 32-40.
+    The reduced CC continues until reading 121, then a sharp CV taper completes
+    the charge.  drop_idx (~35) is after window_idx (30), so step 6 does not
+    suppress the flag.
+    """
     n = 150
-    peak_amps = 71.4
-    plateau_amps = 54.3          # ~24% below peak — above 15% threshold
-    drop_thr = peak_amps * 0.85  # 60.69 A
+    peak_amps = 90.0
+    derate_amps = 60.0
+    derate_start = 32   # derating starts after the settling window
+    derate_end = 40     # derating ramp complete by reading 40
+    cv_start = 121
 
     readings = []
     t = _T0
     for i in range(n):
         frac = i / max(n - 1, 1)
         soc = 60.0 + 35.0 * frac
-        if i < 117:
-            # Gradual linear decline from peak to plateau over the first 117 readings
-            current = peak_amps - (peak_amps - plateau_amps) * (i / 117)
+        if i <= derate_start:
+            current = peak_amps
+        elif i <= derate_end:
+            ramp = (i - derate_start) / (derate_end - derate_start)
+            current = peak_amps - (peak_amps - derate_amps) * ramp
+        elif i < cv_start:
+            current = derate_amps
         else:
-            # Sharp CV taper from plateau down to ~5 A over the last 33 readings
-            cv_frac = (i - 117) / max(n - 1 - 117, 1)
-            current = plateau_amps - (plateau_amps - 5.0) * cv_frac
-            # Voltage holds at absorption to trigger _find_cc_cv_knee
-        voltage = 13.0 + (14.4 - 13.0) * (i / (n - 1))
+            cv_frac = (i - cv_start) / max(n - 1 - cv_start, 1)
+            current = derate_amps - (derate_amps - 5.0) * cv_frac
+        voltage = 13.0 + (14.4 - 13.0) * frac
         readings.append(make_reading(t, soc=round(soc, 2),
                                      current=round(current, 2),
                                      voltage=round(voltage, 3)))
@@ -244,7 +283,7 @@ def test_derating_flagged_with_eventual_cc_cv():
 
     is_derating, peak, plateau = _detect_thermal_derating(readings)
     assert is_derating is True, (
-        f"Expected thermal derating (drop_idx >> window_idx) but got False; "
+        f"Expected thermal derating (drop_idx > window_idx) but got False; "
         f"peak={peak}, plateau={plateau}"
     )
     assert peak is not None

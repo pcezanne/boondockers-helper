@@ -296,12 +296,15 @@ def _detect_thermal_derating(session_readings, drop_pct=15, window_minutes=30):
     1. Estimate the per-reading interval from first and last timestamps.
     2. Collect readings in the initial window_minutes.
     3. Peak = max current in that window.
-    4. Plateau = median current in the second half of the session.
+    4. Plateau = median current in the settled CC window immediately after the
+       inrush period (window_idx → 1.5×window_idx).  Using the second half of
+       the session would contaminate the measurement with CV-phase taper, causing
+       false positives on long complete charges.
     5. Flag if peak > 30 A and (peak − plateau) / peak ≥ drop_pct / 100.
-    6. Suppress false positive: if _find_cc_cv_knee detects an absorption knee,
+    6. Suppress false positive: if _find_cc_cv_knee detects a CC→CV knee,
        the session completed normally.  Any early current drop was the charger
        settling to its sustained CC rate (inrush → nominal), not heat throttling.
-       Sessions that abort before reaching absorption have no detectable knee
+       Sessions that abort before reaching the CV phase have no detectable knee
        and are still flagged.
     """
     n = len(session_readings)
@@ -322,12 +325,13 @@ def _detect_thermal_derating(session_readings, drop_pct=15, window_minutes=30):
         return False, None, None
 
     early = [r.get('current') or 0 for r in session_readings[:window_idx]]
-    later = [r.get('current') or 0 for r in session_readings[n // 2:]]
-    if not early or not later:
+    cc_window_end = min(n, window_idx + max(1, window_idx // 2))
+    cc_phase = [r.get('current') or 0 for r in session_readings[window_idx:cc_window_end]]
+    if not early or not cc_phase:
         return False, None, None
 
     peak = max(early)
-    plateau = statistics.median(later)
+    plateau = statistics.median(cc_phase)
 
     if peak <= 30:
         return False, None, None
