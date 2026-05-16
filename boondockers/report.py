@@ -259,16 +259,21 @@ def build_figure(readings, discharge_sessions, charging_sessions,
         if not type_stats:
             continue
         bar_color = CHARGE_TYPE_COLORS.get(type_label, CHARGE_TYPE_COLORS['Unclassified'])
+        # Sessions where CC rate is unknown (started in CV) are excluded from
+        # the bar chart — we have no meaningful CC rate to plot.
+        plot_stats = [s for s in type_stats if s.get('cc_rate_pct_per_hour') is not None]
+        if not plot_stats:
+            continue
         # Snap to local noon so bars align with daily bars and the SOC chart
         session_times = [
             to_local(s['ts_start']).replace(hour=12, minute=0, second=0, microsecond=0)
-            for s in type_stats
+            for s in plot_stats
         ]
-        cc_rates      = [s['cc_rate_pct_per_hour'] for s in type_stats]
-        full_rates    = [s['charge_rate_pct_per_hour'] for s in type_stats]
+        cc_rates      = [s['cc_rate_pct_per_hour'] for s in plot_stats]
+        full_rates    = [s['charge_rate_pct_per_hour'] for s in plot_stats]
         rolling       = rolling_avg(cc_rates)
-        session_amps  = [s['avg_amps'] for s in type_stats]
-        knee_socs     = [s.get('knee_soc') for s in type_stats]
+        session_amps  = [s['avg_amps'] for s in plot_stats]
+        knee_socs     = [s.get('knee_soc') for s in plot_stats]
 
         # customdata: [avg_amps, full_rate, knee_soc_or_nan]
         customdata = [

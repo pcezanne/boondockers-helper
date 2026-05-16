@@ -183,6 +183,58 @@ def filter_sessions(discharge_sessions, charging_sessions, min_pct=1.0):
 # CC/CV knee detection
 # ---------------------------------------------------------------------------
 
+def _session_started_in_cv(session_readings, window=5,
+                            cv_start_threshold=1.15, mid_slope_threshold=0.80):
+    """Return True if the session had no CC plateau — charger was already in CV
+    when logging began.
+
+    Two conditions must both be true:
+    1. The first few readings are significantly above the middle-50% median
+       (start_avg > plateau * cv_start_threshold).  The plateau estimate is the
+       same median-of-middle-50% used by _find_cc_cv_knee; if the session truly
+       started in CV the plateau captures the midpoint of the taper rather than
+       a stable CC level, making the initial current look elevated relative to it.
+    2. The middle section of the session is still declining
+       (second-half-of-middle avg < first-half-of-middle avg * mid_slope_threshold).
+       A post-derating CC+CV session has a stable middle (post-derating CC phase),
+       so condition 2 correctly excludes thermal-derating cases.
+    """
+    n = len(session_readings)
+    if n < 15:
+        return False
+
+    currents = [(r.get('current') or 0) for r in session_readings]
+
+    # Rolling mean (same as _find_cc_cv_knee)
+    smoothed = []
+    for i in range(n):
+        start = max(0, i - window + 1)
+        smoothed.append(sum(currents[start:i + 1]) / (i - start + 1))
+
+    # Plateau: median of middle 50%
+    mid_start, mid_end = n // 4, 3 * n // 4
+    mid_vals_sorted = sorted(smoothed[mid_start:mid_end])
+    if not mid_vals_sorted:
+        return False
+    plateau = mid_vals_sorted[len(mid_vals_sorted) // 2]
+    if plateau <= 2.0:
+        return False
+
+    # Condition 1: first readings above the plateau?
+    start_avg = sum(smoothed[:min(5, n)]) / min(5, n)
+    if start_avg <= plateau * cv_start_threshold:
+        return False
+
+    # Condition 2: is the middle section still declining?
+    mid_seq = smoothed[mid_start:mid_end]
+    mid_n = len(mid_seq)
+    if mid_n < 4:
+        return False
+    mid_first_avg = sum(mid_seq[:mid_n // 2]) / (mid_n // 2)
+    mid_last_avg = sum(mid_seq[mid_n // 2:]) / max(1, mid_n - mid_n // 2)
+    return mid_last_avg < mid_first_avg * mid_slope_threshold
+
+
 def _find_cc_cv_knee(session_readings, window=5, plateau_fraction=0.85,
                      cv_threshold=0.75):
     """Return the index of the last CC-phase reading, or None.
@@ -361,18 +413,27 @@ def charging_session_stats(session, time_format='12h', date_format='%B %-d, %Y')
     avg_amps = sum(amps_list) / len(amps_list) if amps_list else 0
 
     # CC/CV phase analysis
-    knee_idx = _find_cc_cv_knee(session)
-    if knee_idx is not None and knee_idx > 0:
-        ts_knee = parse_ts(session[knee_idx]['timestamp'])
-        cc_hours = (ts_knee - ts_start).total_seconds() / 3600
-        cc_gain = session[knee_idx]['soc'] - soc_start
-        cc_rate = (cc_gain / cc_hours) if cc_hours > 0 else charge_rate
-        knee_soc = session[knee_idx]['soc']
-        cv_detected = True
-    else:
-        cc_rate = charge_rate   # whole session is CC (or indeterminate)
+    started_in_cv = _session_started_in_cv(session)
+    if started_in_cv:
+        # Charger was already in CV when logging began — no CC phase captured.
+        # We cannot measure a meaningful CC rate; None signals "unknown" to
+        # callers so they don't include this session in charge-rate trending.
+        cc_rate = None
         knee_soc = None
         cv_detected = False
+    else:
+        knee_idx = _find_cc_cv_knee(session)
+        if knee_idx is not None and knee_idx > 0:
+            ts_knee = parse_ts(session[knee_idx]['timestamp'])
+            cc_hours = (ts_knee - ts_start).total_seconds() / 3600
+            cc_gain = session[knee_idx]['soc'] - soc_start
+            cc_rate = (cc_gain / cc_hours) if cc_hours > 0 else charge_rate
+            knee_soc = session[knee_idx]['soc']
+            cv_detected = True
+        else:
+            cc_rate = charge_rate   # whole session is CC (or indeterminate)
+            knee_soc = None
+            cv_detected = False
 
     # Thermal derating detection (uses default thresholds; config thresholds applied
     # in compute_diagnostics so this function stays config-free)
@@ -390,6 +451,7 @@ def charging_session_stats(session, time_format='12h', date_format='%B %-d, %Y')
         'cc_rate_pct_per_hour': cc_rate,
         'knee_soc': knee_soc,
         'cv_detected': cv_detected,
+        'started_in_cv': started_in_cv,
         'avg_amps': avg_amps,
         'is_derating': is_derating,
         'derating_peak_amps': derating_peak_amps,
@@ -559,9 +621,14 @@ def compute_summary(discharge_sessions, discharge_stats, charging_stats,
         # the charger's actual CC capacity. Prefer sessions where the battery was
         # meaningfully discharged (gain >= 5%), falling back to any session if none qualify.
         _MIN_RATE_GAIN_PCT = 5.0
-        substantial = [s for s in summary_charging_stats if s['pct_gain'] >= _MIN_RATE_GAIN_PCT]
-        rate_sessions = substantial if substantial else summary_charging_stats
-        last_rate = rate_sessions[-1]['cc_rate_pct_per_hour']
+        substantial = [s for s in summary_charging_stats
+                       if s['pct_gain'] >= _MIN_RATE_GAIN_PCT
+                       and s.get('cc_rate_pct_per_hour') is not None]
+        rate_sessions = substantial if substantial else [
+            s for s in summary_charging_stats
+            if s.get('cc_rate_pct_per_hour') is not None
+        ]
+        last_rate = rate_sessions[-1]['cc_rate_pct_per_hour'] if rate_sessions else None
         result.update({
             'total_charging_sessions': len(summary_charging_stats),
             'measured_charge_rate': last_rate,
@@ -587,10 +654,12 @@ def compute_summary(discharge_sessions, discharge_stats, charging_stats,
     # --- Per-source rates for the targeted time cards ---
     # Generator rate: for AGS timing ("how long to run the generator?")
     # Shore rate: for hookup planning ("when can I leave?")
-    generator_stats = [s for s in charging_stats if _charge_types_for(s) == {'Generator'}]
-    shore_stats     = [s for s in charging_stats if _charge_types_for(s) == {'Shore'}]
-    generator_rate  = generator_stats[-1]['cc_rate_pct_per_hour'] if generator_stats else None
-    shore_rate      = shore_stats[-1]['cc_rate_pct_per_hour']     if shore_stats     else None
+    generator_stats  = [s for s in charging_stats if _charge_types_for(s) == {'Generator'}]
+    shore_stats      = [s for s in charging_stats if _charge_types_for(s) == {'Shore'}]
+    gen_with_rate    = [s for s in generator_stats if s.get('cc_rate_pct_per_hour') is not None]
+    shore_with_rate  = [s for s in shore_stats     if s.get('cc_rate_pct_per_hour') is not None]
+    generator_rate   = gen_with_rate[-1]['cc_rate_pct_per_hour']   if gen_with_rate   else None
+    shore_rate       = shore_with_rate[-1]['cc_rate_pct_per_hour'] if shore_with_rate else None
     result['generator_rate'] = generator_rate
     result['shore_rate']     = shore_rate
 
@@ -694,14 +763,16 @@ def compute_diagnostics(charging_stats, discharge_stats, all_readings,
             by_type[types[0]].append(s)
 
     for ctype, sessions in by_type.items():
-        if len(sessions) < 4:
+        all_rates = [s['cc_rate_pct_per_hour'] for s in sessions
+                     if s.get('cc_rate_pct_per_hour') is not None]
+        if len(all_rates) < 4:
             continue
-        all_rates = [s['cc_rate_pct_per_hour'] for s in sessions]
         all_time_avg = sum(all_rates) / len(all_rates)
         recent_3 = all_rates[-3:]
         recent_avg = sum(recent_3) / len(recent_3)
         if recent_avg < all_time_avg * (1 - rate_drop_pct / 100):
-            flagged_sids = [_session_id_from_stat(s, 'charge') for s in sessions[-3:]]
+            flagged_sids = [_session_id_from_stat(s, 'charge') for s in sessions[-3:]
+                            if s.get('cc_rate_pct_per_hour') is not None]
             rate_results[ctype] = {
                 'sids': flagged_sids,
                 'recent_avg': round(recent_avg, 2),

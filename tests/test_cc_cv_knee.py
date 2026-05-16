@@ -6,7 +6,7 @@ charging_session_stats.
 from datetime import datetime, timedelta, timezone
 
 from tests.factories import make_reading
-from boondockers.engine import _find_cc_cv_knee, charging_session_stats
+from boondockers.engine import _find_cc_cv_knee, _session_started_in_cv, charging_session_stats
 
 
 # ---------------------------------------------------------------------------
@@ -138,3 +138,85 @@ def test_cc_rate_equals_full_rate_when_no_cv():
     sess = _cc_only_session(n=60)
     stats = charging_session_stats(sess)
     assert stats['cc_rate_pct_per_hour'] == stats['charge_rate_pct_per_hour']
+
+
+# ---------------------------------------------------------------------------
+# _session_started_in_cv
+# ---------------------------------------------------------------------------
+
+def _cv_start_session(n=90, start_amps=90.0, end_amps=5.0,
+                      soc_start=88.0, soc_end=97.0, interval_minutes=1):
+    """Build a pure CV-start session: current tapers monotonically from start_amps
+    to end_amps with no CC plateau.  Simulates a charger that was already in CV
+    (absorption voltage already reached) when the session began."""
+    readings = []
+    t = _T0
+    for i in range(n):
+        frac = i / max(n - 1, 1)
+        soc = soc_start + (soc_end - soc_start) * frac
+        current = start_amps + (end_amps - start_amps) * frac
+        readings.append(make_reading(t, soc=round(soc, 2), current=round(current, 1)))
+        t += timedelta(minutes=interval_minutes)
+    return readings
+
+
+def _thermal_derating_cv_session(n_pre=20, n_cc=60, n_cv=30,
+                                  initial_amps=100.0, cc_amps=70.0, cv_end_amps=8.0,
+                                  soc_start=60.0, soc_cc_end=92.0, soc_cv_end=98.0,
+                                  interval_minutes=1):
+    """Build a session with thermal derating: high initial current → drops to a
+    stable CC plateau → CV taper.  Should NOT be flagged as started_in_cv."""
+    readings = []
+    t = _T0
+    # Pre-derating phase: current drops linearly from initial_amps to cc_amps
+    for i in range(n_pre):
+        frac = i / max(n_pre - 1, 1)
+        soc = soc_start + (soc_cc_end - soc_start) * (i / (n_pre + n_cc + n_cv - 1))
+        current = initial_amps + (cc_amps - initial_amps) * frac
+        readings.append(make_reading(t, soc=round(soc, 2), current=round(current, 1)))
+        t += timedelta(minutes=interval_minutes)
+    # Stable CC plateau
+    for i in range(n_cc):
+        idx = n_pre + i
+        soc = soc_start + (soc_cc_end - soc_start) * (idx / (n_pre + n_cc + n_cv - 1))
+        readings.append(make_reading(t, soc=round(soc, 2), current=cc_amps))
+        t += timedelta(minutes=interval_minutes)
+    # CV taper
+    for i in range(n_cv):
+        idx = n_pre + n_cc + i
+        frac = i / max(n_cv - 1, 1)
+        soc = soc_cc_end + (soc_cv_end - soc_cc_end) * frac
+        current = cc_amps + (cv_end_amps - cc_amps) * frac
+        readings.append(make_reading(t, soc=round(soc, 2), current=round(current, 1)))
+        t += timedelta(minutes=interval_minutes)
+    return readings
+
+
+def test_started_in_cv_pure_taper():
+    """Pure CV-start session (monotone decreasing, no plateau) → True."""
+    sess = _cv_start_session(n=90, start_amps=90.0, end_amps=5.0)
+    assert _session_started_in_cv(sess) is True
+
+
+def test_not_started_in_cv_normal_cc_cv():
+    """Classic CC+CV session — starts at plateau, not above it → False."""
+    sess = _cc_cv_session(n_cc=80, n_cv=30)
+    assert _session_started_in_cv(sess) is False
+
+
+def test_not_started_in_cv_thermal_derating():
+    """Thermal derating: high initial current → stable CC plateau → CV taper.
+    Middle section is stable (the post-derating CC), so condition 2 fails → False."""
+    sess = _thermal_derating_cv_session()
+    assert _session_started_in_cv(sess) is False
+
+
+def test_charging_stats_cv_start():
+    """charging_session_stats for a CV-start session returns started_in_cv=True,
+    cc_rate_pct_per_hour=None, knee_soc=None, cv_detected=False."""
+    sess = _cv_start_session(n=90, start_amps=90.0, end_amps=5.0)
+    stats = charging_session_stats(sess)
+    assert stats['started_in_cv'] is True
+    assert stats['cc_rate_pct_per_hour'] is None
+    assert stats['knee_soc'] is None
+    assert stats['cv_detected'] is False

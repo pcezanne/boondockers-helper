@@ -552,7 +552,7 @@ The definitive test is an *open-bay baseline*: open all charger bay doors (or ac
 panels), run a full charging session on a cool morning (under 70°F / 21°C) using shore
 power or the generator — either source works. On a healthy system with good airflow,
 current should hold near its initial level for the entire CC phase and only taper
-naturally when the battery approaches the absorption setpoint. If derating flags
+naturally when the battery approaches the CV setpoint. If derating flags
 disappear under these conditions but return when the bay is closed, restricted airflow
 is confirmed.
 
@@ -883,9 +883,9 @@ show the taper beginning at a lower-than-normal SOC.
 
 **Battery drifts down from 100% on shore — Magnum ME-ARC50-L / no-BMK limitation**
 
-The Magnum uses CC/CV charging, which is correct for lithium: constant current to
-absorption voltage, then constant voltage until current tapers, then the cycle
-terminates. There is no float phase — terminating at 100% and stopping is the
+The Magnum uses CC/CV charging, which is correct for lithium: constant current until
+the target voltage is reached, then constant voltage until current tapers, then the
+cycle terminates. There is no float phase — terminating at 100% and stopping is the
 right behaviour for lithium chemistry.
 
 The problem is what happens next. Once the charger terminates, parasitic DC loads
