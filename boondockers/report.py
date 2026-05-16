@@ -501,6 +501,7 @@ def build_figure(readings, discharge_sessions, charging_sessions,
                 buttons=[
                     dict(count=3,  label='3d',  step='day', stepmode='backward'),
                     dict(count=7,  label='7d',  step='day', stepmode='backward'),
+                    dict(count=14, label='14d', step='day', stepmode='backward'),
                     dict(count=30, label='30d', step='day', stepmode='backward'),
                     dict(step='all', label='All'),
                 ],
