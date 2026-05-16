@@ -69,11 +69,16 @@ average amps, source type (Shore / Generator / Driving), and notes:
 
 ## Features
 
+### SOC Status Bar
+- Full-width current-charge indicator at the top of the dashboard
+- Shows current SOC % and Ah remaining; tri-color progress track (red below 30%, amber 30–60%, green above 60%)
+- Color and border shift with zone so battery state is readable at a glance
+
 ### Summary Cards
 - **Usage**: running average and 7-day average battery drain (%/day and Ah/day), implied average power draw
-- **Power Remaining**: hours left at today's rate and 7-day average, Ah remaining in bank
+- **Power Remaining**: hours left at today's rate and 7-day average
 - **Full Battery Would Last**: projected days from 100% at each rate
-- **Charging**: last charge rate, daily maintenance hours, estimated time to 95% (generator) and 100% (shore)
+- **Charging**: last charge rate (%/h and Ah/h), daily maintenance hours, estimated time to 95% (generator) and 100% (shore)
 - Shore and Driving sessions are excluded from all off-grid averages automatically
 
 ### State of Charge Chart
@@ -81,7 +86,7 @@ average amps, source type (Shore / Generator / Driving), and notes:
 - Background shading: orange = discharging, green = charging, grey = logger running/idle, white = logger off
 - Adaptive downsampling keeps the chart fast on large datasets while preserving full resolution near session boundaries
 - Session notes appear as hover tooltips over the shaded regions
-- Default view: last 3 days; range buttons for 3d / 7d / 30d / All
+- Default view: last 3 days; range buttons for 3d / 7d / 14d / 30d / All
 - All subplots share the same x-axis and scroll together
 
 ### Daily Battery Usage

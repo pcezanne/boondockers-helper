@@ -9,19 +9,20 @@ is installed and collecting data. For setup instructions see [README.md](../READ
 
 1. [Overview](#overview)
 2. [The Live Dashboard](#the-live-dashboard)
-3. [Summary Cards](#summary-cards)
-4. [State of Charge Chart](#state-of-charge-chart)
-5. [Daily Battery Usage Chart](#daily-battery-usage-chart)
-6. [Charge Rate Chart](#charge-rate-chart)
-7. [Session Tables](#session-tables)
-8. [Shore Power Checkbox](#shore-power-checkbox)
-9. [Classifying Charging Sessions](#classifying-charging-sessions)
-10. [Adding Notes](#adding-notes)
-11. [The HTML Report](#the-html-report)
-12. [Typical Daily Workflow](#typical-daily-workflow)
-13. [Diagnostics Panel](#diagnostics-panel)
-14. [Using Your Data to Improve Your System](#using-your-data-to-improve-your-system)
-15. [Troubleshooting](#troubleshooting)
+3. [SOC Status Bar](#soc-status-bar)
+4. [Summary Cards](#summary-cards)
+5. [State of Charge Chart](#state-of-charge-chart)
+6. [Daily Battery Usage Chart](#daily-battery-usage-chart)
+7. [Charge Rate Chart](#charge-rate-chart)
+8. [Session Tables](#session-tables)
+9. [Shore Power Checkbox](#shore-power-checkbox)
+10. [Classifying Charging Sessions](#classifying-charging-sessions)
+11. [Adding Notes](#adding-notes)
+12. [The HTML Report](#the-html-report)
+13. [Typical Daily Workflow](#typical-daily-workflow)
+14. [Diagnostics Panel](#diagnostics-panel)
+15. [Using Your Data to Improve Your System](#using-your-data-to-improve-your-system)
+16. [Troubleshooting](#troubleshooting)
 
 ---
 
@@ -36,7 +37,7 @@ It then analyses that data to answer the practical questions a boondocker cares 
 - Is my usage trending up or down compared to last week?
 
 The dashboard (`./start_dashboard.sh`) shows live data updated on demand. The HTML
-report (`python3 -m victron.report`) is a portable snapshot you can share or archive.
+report (`python3 -m boondockers.report`) is a portable snapshot you can share or archive.
 
 ---
 
@@ -60,6 +61,31 @@ Two buttons appear at the top right:
 The dashboard does not auto-refresh. Data is static until you hit Refresh — except
 that the Shore Power checkbox and charge Type dropdown update the summary cards
 immediately when changed.
+
+Both buttons show an animated spinner while the operation is running and restore their
+labels when it completes.
+
+---
+
+## SOC Status Bar
+
+A full-width bar appears directly below the action buttons, before the summary cards.
+It shows the current battery state at a glance:
+
+- **Large number** — current SOC % in zone colour
+- **Ah remaining** — amp-hours in the bank (shown when `battery_capacity_ah` is set in config.ini)
+- **Progress track** — tri-color bar showing the full 0–100% range with zone boundaries:
+
+| Zone | Colour | Meaning |
+|------|--------|---------|
+| 0–30% | Red | Low — charge soon |
+| 30–60% | Amber | Getting low — plan charging |
+| 60–100% | Green | Comfortable |
+
+The solid fill extends to your current SOC. The border and the SOC number both shift
+colour with the zone, so the status is readable without reading the number.
+
+The bar updates each time you hit **Refresh**.
 
 ---
 
@@ -88,9 +114,10 @@ The summary cards give you a quick read on battery state. They are divided into 
 |------|--------------|
 | **At 24h rate** | Hours of power left at the current Running Avg rate, starting from the current SOC. |
 | **At 7-day avg** | Same but using the 7-Day Avg rate. |
-| **Ah Remaining** | Amp-hours currently stored in the bank, calculated from current SOC × total capacity. |
 
 These show `—` if there is not enough discharge data yet to calculate a rate.
+
+> **Current SOC and Ah remaining** are shown in the status bar at the top of the dashboard, above the summary cards.
 
 ### Full Battery Would Last
 
@@ -127,7 +154,7 @@ This is the main chart. It shows battery State of Charge (%) over time.
 
 ### Reading the chart
 
-- **Blue line** — SOC % (left y-axis, 0–100%)
+- **Blue line** — State of charge on the left y-axis. When `battery_capacity_ah` is set in config.ini the axis shows **Ah** (e.g. 0–920 Ah); hover shows both Ah and %. Without a capacity setting it shows SOC %.
 - **Orange trace** — Voltage in V (right y-axis, with "V" suffix on tick labels)
 - **Purple trace** — Current in A (right y-axis, with "A" suffix; negative = discharging)
 - **Zero reference line** — thin grey horizontal line at 0A on the current axis
@@ -162,10 +189,16 @@ The thinning uses the LTTB algorithm (Largest Triangle Three Buckets), which
 preferentially keeps visually significant points — peaks, troughs, and inflections —
 rather than throwing away data uniformly.
 
+### Time range
+
+Quick-navigation buttons above the SOC chart let you snap to a preset window:
+**3d · 7d · 14d · 30d · All**. The default view on load is the last 3 days.
+All subplots scroll together on the same shared x-axis.
+
 ### Hovering
 
-- Hover over the **SOC line** to see the exact value, timestamp, and voltage/current
-  at that moment.
+- Hover over the **SOC line** to see the exact SOC %, Ah remaining (when capacity is
+  configured), timestamp, and voltage/current at that moment.
 - Hover over a **shaded session region** (away from the line) to see any note you have
   added for that session.
 
@@ -449,9 +482,9 @@ column in both session tables.
 Generate one:
 
 ```bash
-python3 -m victron.report               # last 30 days
-python3 -m victron.report --days 14     # last 14 days
-python3 -m victron.report --no-open     # generate without opening browser
+python3 -m boondockers.report               # last 30 days
+python3 -m boondockers.report --days 14     # last 14 days
+python3 -m boondockers.report --no-open     # generate without opening browser
 ```
 
 Reports are saved to `reports/report_YYYYMMDD_HHMMSS.html`. They can be shared,
@@ -881,7 +914,7 @@ battery near 100% during extended shore stays.
 
 - Check the logger is running: `launchctl list | grep victron`
 - Verify the database has data: `sqlite3 victron_data.db "SELECT count(*) FROM readings;"`
-- If count is 0, run `python3 victron/logger.py --once` to test the BLE connection
+- If count is 0, run `python3 boondockers/providers/victron_ble.py --once` to test the BLE connection
 
 ### Gap in the SOC chart
 
