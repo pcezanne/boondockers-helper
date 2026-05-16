@@ -787,8 +787,25 @@ def build_app(cfg, time_window=None):
 
     app.layout = make_layout(data)
 
+    # Clientside callbacks fire the instant the button is clicked (no server round trip),
+    # immediately changing the label to a spinner.  The server callbacks restore the label
+    # when they finish.
+    app.clientside_callback(
+        "function(n) { return '\u27f3 Refreshing\u2026'; }",
+        Output('refresh-btn', 'children'),
+        Input('refresh-btn', 'n_clicks'),
+        prevent_initial_call=True,
+    )
+    app.clientside_callback(
+        "function(n) { return '\u27f3 Generating\u2026'; }",
+        Output('download-btn', 'children'),
+        Input('download-btn', 'n_clicks'),
+        prevent_initial_call=True,
+    )
+
     # --- Refresh callback ---
     @app.callback(
+        Output('refresh-btn', 'children', allow_duplicate=True),
         Output('main-chart', 'figure'),
         Output('summary-cards', 'children'),
         Output('discharge-table', 'children'),
@@ -806,7 +823,7 @@ def build_app(cfg, time_window=None):
         if fresh is None:
             empty = html.P('No data.', style={'color': '#999'})
             import plotly.graph_objects as go
-            return go.Figure(), empty, empty, empty, html.Div()
+            return 'Refresh', go.Figure(), empty, empty, empty, html.Div()
         diagnostics = compute_and_save_diagnostics(fresh['db_path'], fresh, cfg)
         notes = load_notes(fresh['db_path'])
         note_map = {sid: d['note'] for sid, d in notes.items() if d.get('note')}
@@ -821,6 +838,7 @@ def build_app(cfg, time_window=None):
         )
         system_diags = diagnostics.get('parasitic_drain', [])
         return (
+            'Refresh',
             fig,
             _summary_cards(fresh['summary']),
             _discharge_table(fresh['discharge_stats'], notes, system_diags, show_all=show_all_discharge),
@@ -943,6 +961,7 @@ def build_app(cfg, time_window=None):
 
     # --- Download Report callback ---
     @app.callback(
+        Output('download-btn', 'children', allow_duplicate=True),
         Output('download-html', 'data'),
         Input('download-btn', 'n_clicks'),
         prevent_initial_call=True,
@@ -950,7 +969,7 @@ def build_app(cfg, time_window=None):
     def download_report(_n):
         fresh = load_all_data(cfg, time_window)
         if fresh is None:
-            return dash.no_update
+            return 'Download Report', dash.no_update
         output_dir = Path(cfg.get('report', 'output_dir', fallback='reports'))
         output_dir.mkdir(exist_ok=True)
         ts = datetime.now().strftime('%Y%m%d_%H%M%S')
@@ -970,7 +989,7 @@ def build_app(cfg, time_window=None):
         # Open in system browser — works in both native window and browser tab modes.
         # dcc.send_file() is unreliable inside pywebview's WKWebView.
         webbrowser.open(output_path.resolve().as_uri())
-        return dash.no_update
+        return 'Download Report', dash.no_update
 
     return app
 
