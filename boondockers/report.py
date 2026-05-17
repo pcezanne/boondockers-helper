@@ -515,9 +515,10 @@ def build_figure(readings, discharge_sessions, charging_sessions,
                 font=dict(size=11, color='white'),
             )
         )
-        # 'active' is not exposed in Plotly's Python validation layer but is
-        # supported by Plotly.js — set it directly on the figure dict.
-        fig.layout['xaxis']['rangeselector']['active'] = _btn_index.get(window_days, 4)
+        # 'active' is not in Plotly Python's Rangeselector validation schema but
+        # Plotly.js renders it. Inject into _props directly — the internal store
+        # Plotly serializes to JSON — bypassing the Python validator.
+        fig.layout['xaxis']['rangeselector']._props['active'] = _btn_index.get(window_days, 4)
     else:
         fig.update_xaxes(showticklabels=True)
 
