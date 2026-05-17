@@ -1,9 +1,6 @@
 /* Instant CSS tooltips via data-tip attribute.
    Applied to table headers and warning cells in the Dash dashboard. */
 
-/* Active rangeselector button (3d, 7d, 14d, 30d, All) — white text on dark activecolor */
-.rangeselector .active text { fill: white !important; }
-
 /* Animated spinner used inside action buttons (Refresh, Download Report) */
 @keyframes btn-spin {
   to { transform: rotate(360deg); }

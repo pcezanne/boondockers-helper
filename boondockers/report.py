@@ -500,7 +500,7 @@ def build_figure(readings, discharge_sessions, charging_sessions,
             fig.update_xaxes(range=[_win_start, _last_ts + timedelta(hours=2)])
         # xaxis_rangeselector targets only xaxis (row 1 = SOC chart), not xaxis2/3/…
         # so buttons appear once, below the SOC chart title, not on every subplot row.
-        # active=0 highlights the first button (3d) on load.
+        _btn_index = {3: 0, 7: 1, 14: 2, 30: 3}
         fig.update_layout(
             xaxis_rangeselector=dict(
                 buttons=[
@@ -510,11 +510,14 @@ def build_figure(readings, discharge_sessions, charging_sessions,
                     dict(count=30, label='30d', step='day', stepmode='backward'),
                     dict(step='all', label='All'),
                 ],
-                bgcolor='#f4f6f9',
+                bgcolor='#7f8c8d',
                 activecolor='#1a5276',
-                font=dict(size=11),
+                font=dict(size=11, color='white'),
             )
         )
+        # 'active' is not exposed in Plotly's Python validation layer but is
+        # supported by Plotly.js — set it directly on the figure dict.
+        fig.layout['xaxis']['rangeselector']['active'] = _btn_index.get(window_days, 4)
     else:
         fig.update_xaxes(showticklabels=True)
 
@@ -622,13 +625,18 @@ def _diagnostics_panel_html(diagnostics):
     return f'<div class="diag-panel">{header}{cards}</div>\n'
 
 
-def _soc_bar_html(soc_pct, remaining_ah=None):
+def _soc_bar_html(soc_pct, remaining_ah=None, capacity_ah=None):
     """Render the full-width tri-color SOC status bar as an HTML string."""
     if soc_pct is None:
         return ''
     color = '#27ae60' if soc_pct > 60 else ('#f39c12' if soc_pct > 30 else '#e74c3c')
     fill_pct = f'{min(soc_pct, 100):.1f}%'
-    ah_part = f'<span class="soc-bar-ah">{remaining_ah:.0f} Ah</span>' if remaining_ah is not None else ''
+    if remaining_ah is not None and capacity_ah is not None:
+        ah_part = f'<span class="soc-bar-ah">({remaining_ah:.0f} / {capacity_ah:.0f} Ah)</span>'
+    elif remaining_ah is not None:
+        ah_part = f'<span class="soc-bar-ah">({remaining_ah:.0f} Ah)</span>'
+    else:
+        ah_part = ''
     border_left = f'border-left: 5px solid {color};'
     return (
         f'<div class="soc-bar-wrap" style="{border_left}">'
@@ -890,7 +898,7 @@ def generate_html(readings, discharge_sessions, charging_sessions,
   {n_dis} discharge sessions &middot; {n_chg} charging sessions
 </p>
 
-{_soc_bar_html(cur_soc, remaining_ah)}
+{_soc_bar_html(cur_soc, remaining_ah, capacity_ah)}
 
 <div class="group-label">Usage</div>
 <div class="summary">

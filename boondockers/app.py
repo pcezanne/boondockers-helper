@@ -530,12 +530,17 @@ def _charging_table(charging_stats, notes, show_all=False):
                       style={'borderCollapse': 'collapse', 'width': '100%', 'fontSize': '0.88em'})
 
 
-def _soc_status_bar(soc_pct, remaining_ah=None):
+def _soc_status_bar(soc_pct, remaining_ah=None, capacity_ah=None):
     """Full-width SOC status bar with tri-color progress track."""
     if soc_pct is None:
         return html.Div()
     color = '#27ae60' if soc_pct > 60 else ('#f39c12' if soc_pct > 30 else '#e74c3c')
-    ah_text = f' / {remaining_ah:.0f} Ah' if remaining_ah is not None else ''
+    if remaining_ah is not None and capacity_ah is not None:
+        ah_text = f' ({remaining_ah:.0f} / {capacity_ah:.0f} Ah)'
+    elif remaining_ah is not None:
+        ah_text = f' ({remaining_ah:.0f} Ah)'
+    else:
+        ah_text = ''
     fill_pct = f'{min(soc_pct, 100):.1f}%'
     return html.Div([
         html.Div('Current Charge', style={
@@ -641,7 +646,7 @@ def _summary_cards(summary):
         return html.Div(children, style=card_style)
 
     return html.Div([
-        _soc_status_bar(cur_soc, remaining_ah),
+        _soc_status_bar(cur_soc, remaining_ah, capacity_ah),
 
         html.Div('Usage', style=grp_style),
         html.Div([
