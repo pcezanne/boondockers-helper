@@ -497,7 +497,7 @@ def build_figure(readings, discharge_sessions, charging_sessions,
         if window_days:
             _last_ts = to_local(parse_ts(readings[-1]['timestamp']))
             _win_start = _last_ts - timedelta(days=window_days)
-            fig.update_xaxes(range=[_win_start, _last_ts + timedelta(hours=2)])
+            fig.update_xaxes(range=[_win_start, _last_ts])
         # xaxis_rangeselector targets only xaxis (row 1 = SOC chart), not xaxis2/3/…
         # so buttons appear once, below the SOC chart title, not on every subplot row.
         _btn_index = {3: 0, 7: 1, 14: 2, 30: 3}
